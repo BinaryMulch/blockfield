@@ -1,0 +1,17 @@
+services:
+  blockfield:
+    build: .
+    image: blockfield:local
+    ports:
+      - "${BLOCKFIELD_PORT:-5173}:5173"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 5173
+      WORLD_NAME: "${WORLD_NAME:-Blockfield Together}"
+      WORLD_SEED: "${WORLD_SEED:-Blockfield}"
+      DATA_DIR: /app/data
+    volumes:
+      - blockfield-data:/app/data
+    restart: unless-stopped
+volumes:
+  blockfield-data:

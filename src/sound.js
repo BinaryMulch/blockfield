@@ -1,0 +1,135 @@
+import { GRASS, DIRT, STONE, WOOD, LEAVES, SAND, WATER, PLANKS, BRICKS, GLASS, DOOR, LANTERN, SLAB, RED_FLOWER, isFlower, buildBlock } from './world.js';
+
+const MATERIALS = {
+  [GRASS]: { tone: 115, cutoff: 1800, noise: 0.8, ring: 0.28, decay: 1 },
+  [DIRT]: { tone: 85, cutoff: 1100, noise: 0.7, ring: 0.4, decay: 0.9 },
+  [STONE]: { tone: 510, cutoff: 4800, noise: 0.4, ring: 0.55, decay: 0.65 },
+  [WOOD]: { tone: 185, cutoff: 1400, noise: 0.3, ring: 0.7, decay: 0.85 },
+  [LEAVES]: { tone: 290, cutoff: 3600, noise: 0.95, ring: 0.08, decay: 1.2 },
+  [SAND]: { tone: 72, cutoff: 2000, noise: 0.85, ring: 0.2, decay: 0.95 },
+  [WATER]: { tone: 155, cutoff: 2800, noise: 0.85, ring: 0.22, decay: 1.2 },
+  [PLANKS]: { tone: 260, cutoff: 1800, noise: 0.25, ring: 0.65, decay: 0.7 },
+  [BRICKS]: { tone: 360, cutoff: 3500, noise: 0.45, ring: 0.45, decay: 0.75 },
+  [GLASS]: { tone: 1300, cutoff: 6200, noise: 0.25, ring: 0.45, decay: 0.8 },
+  [DOOR]: { tone: 210, cutoff: 1300, noise: 0.3, ring: 0.6, decay: 0.9 },
+  [LANTERN]: { tone: 620, cutoff: 3100, noise: 0.15, ring: 0.6, decay: 0.65 },
+  [SLAB]: { tone: 285, cutoff: 1950, noise: 0.25, ring: 0.65, decay: 0.65 },
+  [RED_FLOWER]: { tone: 380, cutoff: 2500, noise: 0.65, ring: 0.12, decay: 0.6 },
+};
+const ACTIONS = {
+  step: { duration: 0.14, volume: 0.38, pitch: 0.8, seed: 1 },
+  place: { duration: 0.16, volume: 0.6, pitch: 0.95, seed: 2 },
+  break: { duration: 0.25, volume: 0.65, pitch: 1.15, seed: 3 },
+  open: { duration: 0.2, volume: 0.45, pitch: 0.85, seed: 4 },
+  close: { duration: 0.16, volume: 0.5, pitch: 1.05, seed: 5 },
+};
+
+// Short, repeatable PCM effects: filtered crunch plus a material-specific impact.
+export function synthesizeSound(block, action, sampleRate, variant = 0) {
+  block = isFlower(block) ? RED_FLOWER : buildBlock(block);
+  const material = MATERIALS[block];
+  const effect = ACTIONS[action];
+  if (!material || !effect || !Number.isFinite(sampleRate) || sampleRate < 8000) throw new RangeError('Invalid sound parameters');
+  const duration = effect.duration * material.decay;
+  const samples = new Float32Array(Math.ceil(duration * sampleRate));
+  const frequency = material.tone * effect.pitch * (1 + (variant - 1) * 0.045);
+  const filter = 1 - Math.exp(-2 * Math.PI * material.cutoff / sampleRate);
+  let seed = block * 1009 + effect.seed * 7919 + variant * 127;
+  let filtered = 0;
+  for (let i = 0; i < samples.length; i++) {
+    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+    const white = (seed >>> 0) / 2147483648 - 1;
+    filtered += filter * (white - filtered);
+    const time = i / sampleRate;
+    const attack = Math.min(1, time / 0.003);
+    const release = Math.max(0, Math.min(1, (duration - time) / 0.012));
+    const envelope = attack * release * Math.exp(-time / (duration * 0.25));
+    const phase = 2 * Math.PI * frequency * (time + 0.025 * (1 - Math.exp(-time / 0.025)));
+    const impact = Math.sin(phase) * 0.8 + Math.sin(phase * 2.1) * 0.2;
+    const crumble = action === 'break' ? 0.8 + 0.2 * Math.sin(time * 230) : 1;
+    samples[i] = (filtered * material.noise * crumble + impact * material.ring) * envelope * effect.volume;
+  }
+  return samples;
+}
+
+export class FootstepTracker {
+  distance = 0;
+
+  reset() {
+    this.distance = 0;
+  }
+
+  update(before, after) {
+    if (!after.grounded) {
+      this.reset();
+      return false;
+    }
+    if (!before.grounded) {
+      this.reset();
+      return before.vy < -3;
+    }
+    this.distance += Math.hypot(after.x - before.x, after.z - before.z);
+    if (this.distance < 1.7) return false;
+    this.distance %= 1.7;
+    return true;
+  }
+}
+
+export class GameSounds {
+  enabled = true;
+  context = null;
+  master = null;
+  buffers = new Map();
+  active = new Set();
+  nextVariant = 0;
+
+  async resume() {
+    if (!this.enabled) return;
+    try {
+      if (!this.context) {
+        this.context = new AudioContext();
+        this.master = this.context.createGain();
+        this.master.gain.value = 0.45;
+        this.master.connect(this.context.destination);
+      }
+      if (this.context.state !== 'running') await this.context.resume();
+    } catch {
+      // Sound is optional if the browser cannot provide an audio device.
+    }
+  }
+
+  setEnabled(enabled) {
+    this.enabled = enabled;
+    if (this.master) this.master.gain.value = enabled ? 0.45 : 0;
+    if (enabled) void this.resume();
+    else this.stop();
+  }
+
+  play(block, action) {
+    block = isFlower(block) ? RED_FLOWER : buildBlock(block);
+    if (!this.enabled || !this.master || this.context?.state !== 'running' || !MATERIALS[block] || !ACTIONS[action]) return;
+    const variant = this.nextVariant++ % 3;
+    const key = `${block}:${action}:${variant}`;
+    let buffer = this.buffers.get(key);
+    if (!buffer) {
+      const samples = synthesizeSound(block, action, this.context.sampleRate, variant);
+      buffer = this.context.createBuffer(1, samples.length, this.context.sampleRate);
+      buffer.copyToChannel(samples, 0);
+      this.buffers.set(key, buffer);
+    }
+    const source = this.context.createBufferSource();
+    source.buffer = buffer;
+    source.connect(this.master);
+    source.onended = () => {
+      source.disconnect();
+      this.active.delete(source);
+    };
+    this.active.add(source);
+    source.start();
+  }
+
+  stop() {
+    for (const source of this.active) source.stop();
+    this.active.clear();
+  }
+}

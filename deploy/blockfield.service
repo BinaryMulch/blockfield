@@ -1,0 +1,25 @@
+[Unit]
+Description=Blockfield multiplayer server
+After=network.target
+
+[Service]
+Type=simple
+User=blockfield
+Group=blockfield
+WorkingDirectory=/opt/blockfield
+Environment=NODE_ENV=production
+Environment=HOST=0.0.0.0
+Environment=PORT=5173
+Environment=DATA_DIR=/var/lib/blockfield
+StateDirectory=blockfield
+EnvironmentFile=-/etc/blockfield.env
+ExecStart=/usr/bin/node /opt/blockfield/server.js --production
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

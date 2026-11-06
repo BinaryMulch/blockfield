@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#b9d8e1" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="description" content="A tiny voxel sandbox. Walk, jump, and build a little world." />
+    <title>Blockfield — a tiny voxel sandbox</title>
+  </head>
+  <body>
+    <canvas id="game" aria-label="First-person voxel world"></canvas>
+    <header class="brand"><span class="brand-icon" aria-hidden="true">▧</span> BLOCKFIELD <span class="edition" id="player-count">choose a world</span></header>
+    <div id="coordinates" class="coordinates" hidden></div>
+    <button id="time-toggle" class="time-toggle" type="button" aria-label="Hold time of day" aria-pressed="false" title="T to hold or resume time. N to skip to the next time of day."><span id="time-label">Day · cycling</span> <kbd>T</kbd></button>
+    <button id="sound-toggle" class="sound-toggle" type="button" aria-label="Mute sound" aria-pressed="false">Sound on <kbd>M</kbd></button>
+    <button id="performance-toggle" class="performance-toggle" type="button" aria-controls="performance-panel" aria-pressed="false">Performance <kbd>P</kbd></button>
+    <aside id="performance-panel" class="performance-panel" aria-label="Performance diagnostics" hidden>
+      <div class="performance-heading"><strong>Performance</strong><button type="button" data-close aria-label="Close performance panel">×</button></div>
+      <div class="performance-fps"><span data-stat="fps">—</span> <small>FPS</small><span data-stat="context" class="performance-context">Menu</span></div>
+      <canvas width="480" height="88" aria-label="Frame time history; lower is better. Reference lines at 16.7 and 33.3 milliseconds."></canvas>
+      <dl>
+        <dt>Frame avg / p95</dt><dd data-stat="frame">—</dd>
+        <dt>Worst frame</dt><dd data-stat="worst">—</dd>
+        <dt title="Elapsed work inside the game animation callback, including graphics submission; not total CPU usage or GPU time.">Main work avg / p95</dt><dd data-stat="work">—</dd>
+        <dt title="Browser estimate, where supported; not total browser or GPU memory. Worker coverage varies.">JS heap estimate</dt><dd data-stat="heap">—</dd>
+        <dt>Draw calls / triangles</dt><dd data-stat="draws">—</dd>
+        <dt>Geometries / textures</dt><dd data-stat="resources">—</dd>
+        <dt>Chunks data / mesh / queue</dt><dd data-stat="chunks">—</dd>
+        <dt title="Average worker execution / complete round-trip time over the latest 60 jobs.">Mesh work / round trip</dt><dd data-stat="mesh">—</dd>
+        <dt title="Average worker execution / complete round-trip time over the latest 60 jobs.">Terrain work / round trip</dt><dd data-stat="generate">—</dd>
+        <dt>Jobs mesh / terrain</dt><dd data-stat="jobs">—</dd>
+      </dl>
+      <p class="performance-section" data-stat="server">Checking host…</p>
+      <dl>
+        <dt title="Whole server process CPU use, including Vite during development. 100% equals one logical core.">Server CPU · 1 core = 100%</dt><dd data-stat="cpu">—</dd>
+        <dt>Server RAM (RSS)</dt><dd data-stat="rss">—</dd>
+        <dt title="Percentage of time the server's main event loop is active, including blocking waits; distinct from CPU usage.">Event loop active</dt><dd data-stat="loop">—</dd>
+        <dt>Server tick work p95</dt><dd data-stat="tick">—</dd>
+        <dt>Last disk checkpoint</dt><dd data-stat="save">—</dd>
+        <dt>Host players / chunks</dt><dd data-stat="host-world">—</dd>
+        <dt title="HTTP request round trip including server handling; not WebSocket ping.">HTTP round trip</dt><dd data-stat="latency">—</dd>
+      </dl>
+      <p class="performance-note">Live frames · p95: 95% were this fast or faster.<br>Browser CPU / GPU usage isn’t exposed.<br>Esc for controls · P to hide.</p>
+      <div class="performance-actions"><button type="button" data-reset>Reset frames</button><button type="button" data-export>Export report</button></div>
+    </aside>
+    <main id="menu" class="menu">
+      <section class="menu-card" aria-labelledby="menu-title">
+        <span class="eyebrow">JUST YOU & A FEW BLOCKS</span>
+        <h1 id="menu-title">Make a little<br />space of your own.</h1>
+        <p id="menu-description">Wander the woods. Break a block. Build something.</p>
+        <div class="session-panel">
+          <div class="session-row"><label for="player-name">Your name</label><input id="player-name" maxlength="20" placeholder="Builder" autocomplete="off" spellcheck="false" /><span id="network-status" role="status">Choose single player or multiplayer</span></div>
+          <div class="session-row" id="invite-row" hidden><label for="join-link">Invite link</label><input id="join-link" readonly aria-label="Link to this multiplayer world" /><button id="copy-link" type="button">Copy</button></div>
+          <button id="retry-connection" type="button" hidden>Try joining again</button>
+          <div id="save-row" class="save-row" hidden><span id="save-status" role="status" aria-live="polite">Preparing save…</span><button id="save-now" type="button">Save now</button><button id="export-world" type="button">Export backup</button></div>
+        </div>
+        <div id="world-chooser" class="world-chooser">
+          <div class="world-choice"><h2>Single player</h2><label for="world-name">World name</label><input id="world-name" maxlength="40" placeholder="My world" /><label for="world-seed">Seed <small>(optional)</small></label><input id="world-seed" maxlength="80" placeholder="A new landscape every time" /><button id="create-world" type="button">Create a new world</button><div id="saved-worlds" class="saved-worlds" aria-label="Saved single-player worlds">Loading saved worlds…</div><button id="import-world" type="button">Import world backup</button><input id="import-file" type="file" accept=".json,application/json" hidden /></div>
+          <div class="world-choice"><h2>Multiplayer</h2><label for="server-address">Server address</label><input id="server-address" placeholder="http://server-address:5173" spellcheck="false" /><p>Join this host, or enter your Mac or Linux server’s address.</p><button id="join-server" type="button">Join multiplayer</button></div>
+        </div>
+        <button id="play" class="play-button" type="button" disabled hidden>Let's play <span aria-hidden="true">↗</span></button>
+        <button id="leave-world" class="leave-button" type="button" hidden>Save & leave</button>
+        <div class="instructions">
+          <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</span>
+          <span><kbd>SHIFT</kbd> hold to sprint</span>
+          <span><kbd>SPACE</kbd> jump</span>
+          <span><span class="mouse-icon" aria-hidden="true">◧</span> mouse to look</span>
+          <span><kbd>V</kbd> toggle flying</span>
+          <span><kbd>SPACE</kbd> up / <kbd>C</kbd> down in flight</span>
+          <span><span class="mouse-icon" aria-hidden="true">◧</span> click to break</span>
+          <span><kbd>F</kbd> / right-click to place</span>
+          <span><kbd>1</kbd>–<kbd>9</kbd><kbd>0</kbd> blocks</span>
+          <span><kbd>E</kbd> pick the block you see</span>
+          <span><kbd>ESC</kbd> pause</span>
+          <span><kbd>M</kbd> mute / unmute</span>
+          <span><kbd>P</kbd> performance stats</span>
+          <span><kbd>T</kbd> hold / resume time</span>
+          <span><kbd>N</kbd> next time of day</span>
+          <span><kbd>Z</kbd> undo / <kbd>SHIFT</kbd><kbd>Z</kbd> redo</span>
+          <span><kbd>Q</kbd> open / close a door</span>
+          <span><kbd>L</kbd> lantern / <kbd>B</kbd> wooden slab</span>
+          <span><kbd>R</kbd> choose / cycle flowers</span>
+        </div>
+        <p class="footnote" id="world-footnote">A world of your own, or one shared with friends</p>
+        <p id="error" class="error" role="alert" hidden></p>
+      </section>
+    </main>
+    <div id="crosshair" class="crosshair" aria-hidden="true" hidden></div>
+    <div id="mode-indicator" class="mode-indicator" hidden>FLYING <span>V to return to walking</span></div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <footer class="hud">
+      <div id="play-hint" class="play-hint" hidden><span id="movement-hint">Shift to sprint</span> <span>·</span> Click to break <span>·</span> F / right-click to place <span>·</span> E to pick <span>·</span> Q use door <span>·</span> Z undo / Shift Z redo <span>·</span> Esc to pause</div>
+      <nav class="hotbar" aria-label="Choose a block">
+        <button class="slot selected" data-block="1" aria-label="Grass, key 1" aria-pressed="true"><span class="slot-key">1</span><span class="block-icon grass" aria-hidden="true"></span><span>Grass</span></button>
+        <button class="slot" data-block="2" aria-label="Dirt, key 2" aria-pressed="false"><span class="slot-key">2</span><span class="block-icon dirt" aria-hidden="true"></span><span>Dirt</span></button>
+        <button class="slot" data-block="3" aria-label="Stone, key 3" aria-pressed="false"><span class="slot-key">3</span><span class="block-icon stone" aria-hidden="true"></span><span>Stone</span></button>
+        <button class="slot" data-block="4" aria-label="Wood, key 4" aria-pressed="false"><span class="slot-key">4</span><span class="block-icon wood" aria-hidden="true"></span><span>Wood</span></button>
+        <button class="slot" data-block="5" aria-label="Leaves, key 5" aria-pressed="false"><span class="slot-key">5</span><span class="block-icon leaves" aria-hidden="true"></span><span>Leaves</span></button>
+        <button class="slot" data-block="6" aria-label="Sand, key 6" aria-pressed="false"><span class="slot-key">6</span><span class="block-icon sand" aria-hidden="true"></span><span>Sand</span></button>
+        <button class="slot" data-block="8" aria-label="Planks, key 7" aria-pressed="false"><span class="slot-key">7</span><span class="block-icon planks" aria-hidden="true"></span><span>Planks</span></button>
+        <button class="slot" data-block="9" aria-label="Bricks, key 8" aria-pressed="false"><span class="slot-key">8</span><span class="block-icon bricks" aria-hidden="true"></span><span>Bricks</span></button>
+        <button class="slot" data-block="10" aria-label="Glass, key 9" aria-pressed="false"><span class="slot-key">9</span><span class="block-icon glass" aria-hidden="true"></span><span>Glass</span></button>
+        <button class="slot" data-block="11" aria-label="Door, key 0" aria-pressed="false"><span class="slot-key">0</span><span class="block-icon door" aria-hidden="true"></span><span>Door</span></button>
+        <button class="slot" data-block="27" aria-label="Lantern, key L" aria-pressed="false"><span class="slot-key">L</span><span class="block-icon lantern" aria-hidden="true"></span><span>Lantern</span></button>
+        <button class="slot" data-block="28" aria-label="Wooden slab, key B" aria-pressed="false"><span class="slot-key">B</span><span class="block-icon slab" aria-hidden="true"></span><span>Slab</span></button>
+        <button class="slot" data-block="30" data-flower aria-label="Red flower, key R to change flower" aria-pressed="false" title="R cycles red flowers, yellow flowers, and daisies"><span class="slot-key">R</span><span class="block-icon flower" aria-hidden="true"></span><span>Flowers</span></button>
+      </nav>
+      <span class="selected-caption" id="selected-caption">GRASS SELECTED</span>
+    </footer>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
