@@ -8,10 +8,21 @@ import { browserSaves, saveMessage } from './browser-saves.js';
 import { Inventory, emptyGatherInventory } from './inventory.js';
 const motionStamp = (pose, clock) => [pose.x, pose.y, pose.z, pose.yaw % (Math.PI * 2), pose.pitch, pose.flying === true, clock.phase, clock.held].join(':');
 
-export function serverURL(value, current = location.origin) {
-  const text = value.trim() || current;
-  const url = new URL(/^[a-z][a-z\d+.-]*:/i.test(text) && !/^[\w.-]+:\d+(\/|$)/.test(text) ? text : `http://${text}`);
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Enter an http:// or https:// server address.');
+export function serverURL(value, current = location.origin, port) {
+  const base = new URL(current);
+  let text = value.trim() || current;
+  const hasProtocol = /^[a-z][a-z\d+.-]*:\/\//i.test(text);
+  // IPv6 literals need brackets in URLs, but players can type the bare address.
+  if (!hasProtocol && !text.startsWith('[') && (text.match(/:/g) || []).length > 1) text = `[${text}]`;
+  let url;
+  try { url = new URL(hasProtocol ? text : `${base.protocol}//${text}`); }
+  catch { throw new Error('Enter a valid IP address or hostname.'); }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) throw new Error('Enter a valid IP address or hostname.');
+  if (port !== undefined) {
+    const number = String(port).trim();
+    if (!/^\d+$/.test(number) || Number(number) < 1 || Number(number) > 65535) throw new Error('Enter a port number from 1 to 65535.');
+    url.port = String(Number(number));
+  }
   url.pathname = '/'; url.hash = ''; url.search = '?join=1';
   return url;
 }

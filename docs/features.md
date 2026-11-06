@@ -4,8 +4,8 @@
 
 - Seeded **512 × 512** worlds, 24 blocks high, with hills, lakes, trees, and flowers.
 - Nearby chunks load as you explore; distant chunks unload.
-- Private single-player worlds with a saved-world picker and JSON export/import.
-- Shared multiplayer worlds for **up to eight players**, with avatars, names, and reconnect support.
+- Private single-player worlds with a dedicated, searchable world browser, visible mode/save details, a separate creation screen, JSON export/import, and per-world deletion with confirmation.
+- Shared multiplayer worlds for **up to eight players**, with avatars, names, a live connected-player list in the Escape pause menu, and reconnect support.
 - Walking, jumping, sprinting, flying, and half-block step climbing.
 - Shared day/night cycle, sunlight/shadows, moon, stars, and time controls.
 
@@ -19,7 +19,7 @@
 - Grass, dirt, stone, wood, leaves, sand, planks, bricks, glass, doors, lanterns, wooden slabs, and three flower varieties.
 - Doors open/close; slabs can merge into planks; lantern light is blocked by opaque walls and closed doors.
 - Undo/redo covers block edits and fixtures. Gather undo/redo also transfers the corresponding supplies; unavailable items or conflicting edits prevent the action.
-- Procedural pixel textures, placement/breaking sounds, footsteps, and block particles.
+- Procedural pixel textures, placement/breaking sounds, footsteps, water-entry splashes, swimming sounds, and block particles.
 
 Choose a recipe in inventory, then click **Make**:
 
@@ -34,21 +34,23 @@ Choose a recipe in inventory, then click **Make**:
 
 ## Desktop controls
 
+The main menu has large **Single Player**, **Multiplayer**, **Settings**, and **Controls** buttons. Settings and Controls are also accessible from the Escape pause menu. Keyboard hints stay off the gameplay HUD.
+
 | Action | Control |
 | --- | --- |
 | Move / look | WASD / mouse |
 | Sprint / jump | Hold Shift / Space |
 | Fly / rise / descend | V / Space / C |
-| Break / place | Left-click / F or right-click |
-| Select hotbar / inventory | 1–9 / I |
-| Pick an owned material / use door | E / Q |
+| Break / place | Left-click / F (right-click places when not aiming at a door) |
+| Select hotbar / inventory | Scroll wheel or 1–9 / I |
+| Pick an owned material / interact | Middle-click / E or right-click |
 | Quick-select door / lantern / slab / flowers | 0 / L / B / R |
 | Undo / redo | Z / Shift+Z or Y |
-| Pause / release mouse | Escape |
+| Pause / close menu and resume | Escape |
 | Hold time / skip to next time of day | T / N |
 | Mute sound / performance stats | M / P |
 
-Gather picking and quick selection only use items you own. In Creative they can assign unlimited materials. I returns from inventory to play when opened during play; Escape returns to the pause menu.
+Gather picking and quick selection only use items you own. In Creative they can assign unlimited materials. I, Escape, and the inventory close button return to play when inventory was opened during play. Escape always closes inventory directly into the game; the other close actions return inventory opened from the pause menu back there. Escape also closes Settings, Controls, and the pause menu to resume play.
 
 ## Graphics and saves
 
@@ -61,3 +63,5 @@ Gather picking and quick selection only use items you own. In Creative they can 
 ## Current scope
 
 This is a cooperative sandbox for trusted family/friend play. There are no accounts, combat, health, hunger, mobs, or dropped-item pickups. Water is still, and worlds have finite boundaries. Undo/redo history resets after reopening/reconnecting. Keep the same browser profile and site address to retain access to private worlds and your multiplayer inventory identity.
+
+The [player account and inventory recovery proposal](player-identity.md) is deferred future work.

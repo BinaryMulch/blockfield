@@ -12,9 +12,9 @@
     <canvas id="game" aria-label="First-person voxel world"></canvas>
     <header class="brand"><span class="brand-icon" aria-hidden="true">▧</span> BLOCKFIELD <span class="edition" id="player-count">choose a world</span></header>
     <div id="coordinates" class="coordinates" hidden></div>
-    <button id="time-toggle" class="time-toggle" type="button" aria-label="Hold time of day" aria-pressed="false" title="T to hold or resume time. N to skip to the next time of day."><span id="time-label">Day · cycling</span> <kbd>T</kbd></button>
-    <button id="sound-toggle" class="sound-toggle" type="button" aria-label="Mute sound" aria-pressed="false">Sound on <kbd>M</kbd></button>
-    <button id="performance-toggle" class="performance-toggle" type="button" aria-controls="performance-panel" aria-pressed="false">Performance <kbd>P</kbd></button>
+
+
+
     <aside id="performance-panel" class="performance-panel" aria-label="Performance diagnostics" hidden>
       <div class="performance-heading"><strong>Performance</strong><button type="button" data-close aria-label="Close performance panel">×</button></div>
       <div class="performance-fps"><span data-stat="fps">—</span> <small>FPS</small><span data-stat="context" class="performance-context">Menu</span></div>
@@ -49,29 +49,49 @@
     </aside>
     <main id="menu" class="menu">
       <section class="menu-card" aria-labelledby="menu-title">
-        <span class="eyebrow">JUST YOU & A FEW BLOCKS</span>
-        <h1 id="menu-title">Make a little<br />space of your own.</h1>
+        <button id="menu-back" class="menu-back" type="button" hidden>← Back</button>
+        <span class="eyebrow">A LITTLE WORLD. ENDLESS POSSIBILITIES.</span>
+        <h1 id="menu-title">Blockfield</h1>
         <p id="menu-description">Wander the woods. Break a block. Build something.</p>
-        <div class="control-picker"><label for="control-mode">Controls</label><select id="control-mode"><option value="mouse">Mouse &amp; keyboard</option><option value="touch">Touch</option></select></div>
+        <div id="session-mode" class="session-mode" data-menu-panel="pause" hidden><span id="session-mode-label">World mode</span><strong id="session-mode-value">Loading…</strong></div>
+        <nav class="main-actions" data-menu-panel="home" aria-label="Play modes">
+          <button type="button" data-menu-screen="single" class="menu-primary">Single Player <span>A world of your own</span></button>
+          <button type="button" data-menu-screen="multi" class="menu-primary">Multiplayer <span>Build together with friends</span></button>
+        </nav>
+        <div class="pause-layout" data-menu-panel="pause" hidden>
+          <div class="pause-controls">
+            <div class="pause-actions">
+              <button id="play" class="play-button" type="button" disabled>Let's play <span aria-hidden="true">↗</span></button>
+              <button id="inventory-toggle" class="inventory-toggle" type="button" disabled>Inventory <kbd>I</kbd></button>
+              <button id="leave-world" class="leave-button" type="button">Save &amp; leave</button>
+            </div>
+            <nav class="options-actions" aria-label="Pause options">
+              <button type="button" data-menu-screen="settings">Settings</button>
+              <button type="button" data-menu-screen="controls">Controls</button>
+            </nav>
+          </div>
+          <section id="connected-players" class="connected-players" aria-labelledby="connected-players-title" hidden>
+            <div class="connected-players-heading"><h2 id="connected-players-title">Connected players</h2><span id="connected-player-count" role="status" aria-live="polite">0 / 8</span></div>
+            <ul id="connected-player-list" class="connected-player-list" aria-label="Players in this world"></ul>
+            <p id="connected-players-status" class="connected-players-status">Connecting…</p>
+          </section>
+        </div>
+        <nav class="options-actions" data-menu-panel="home" aria-label="Game options">
+          <button type="button" data-menu-screen="settings">Settings</button>
+          <button type="button" data-menu-screen="controls">Controls</button>
+        </nav>
+        <section data-menu-panel="settings" class="settings-screen" hidden>
+          <div class="player-setting"><label for="player-name">Your name</label><input id="player-name" maxlength="20" placeholder="Builder" autocomplete="off" spellcheck="false" /></div>
         <fieldset class="graphics-settings"><legend>Graphics</legend>
           <label for="fps-limit">FPS limit<select id="fps-limit"><option value="30">30 FPS</option><option value="60">60 FPS</option><option value="120">120 FPS</option></select></label>
           <label for="render-resolution">Render resolution<select id="render-resolution"><option value="0.5">50% · lighter</option><option value="0.75">75% · balanced</option><option value="1">100% · sharper</option></select></label>
           <p id="graphics-note">Saved in this browser. Lower resolution draws fewer pixels.</p>
         </fieldset>
+          <fieldset class="general-settings"><legend>Sound &amp; world</legend><button id="time-toggle" class="time-toggle" type="button" aria-label="Hold time of day" aria-pressed="false" title="T to hold or resume time. N to skip to the next time of day."><span id="time-label">Day · cycling</span> <kbd>T</kbd></button><button id="sound-toggle" class="sound-toggle" type="button" aria-label="Mute sound" aria-pressed="false">Sound on <kbd>M</kbd></button><button id="performance-toggle" class="performance-toggle" type="button" aria-controls="performance-panel" aria-pressed="false">Performance <kbd>P</kbd></button><p>Time controls apply to everyone in a shared world.</p></fieldset>
+        </section>
+        <section data-menu-panel="controls" class="controls-screen" hidden>
+        <div class="control-picker"><label for="control-mode">Controls</label><select id="control-mode"><option value="mouse">Mouse &amp; keyboard</option><option value="touch">Touch</option></select></div>
         <p id="touch-instructions" class="touch-instructions">Move with the left stick. Drag the world to look. Aim the crosshair, then tap Break or Place. Tap Pause to return here. Landscape gives you more room.</p>
-        <div class="session-panel">
-          <div class="session-row"><label for="player-name">Your name</label><input id="player-name" maxlength="20" placeholder="Builder" autocomplete="off" spellcheck="false" /><span id="network-status" role="status">Choose single player or multiplayer</span></div>
-          <div class="session-row" id="invite-row" hidden><label for="join-link">Invite link</label><input id="join-link" readonly aria-label="Link to this multiplayer world" /><button id="copy-link" type="button">Copy</button></div>
-          <button id="retry-connection" type="button" hidden>Try joining again</button>
-          <div id="save-row" class="save-row" hidden><span id="save-status" role="status" aria-live="polite">Preparing save…</span><button id="save-now" type="button">Save now</button><button id="export-world" type="button">Export backup</button></div>
-        </div>
-        <div id="world-chooser" class="world-chooser">
-          <div class="world-choice"><h2>Single player</h2><label for="world-name">World name</label><input id="world-name" maxlength="40" placeholder="My world" /><label for="world-mode">World mode</label><select id="world-mode"><option value="gather">Gather · collect &amp; build</option><option value="creative">Creative · unlimited blocks</option></select><label for="world-seed">Seed <small>(optional)</small></label><input id="world-seed" maxlength="80" placeholder="A new landscape every time" /><button id="create-world" type="button">Create a new world</button><div id="saved-worlds" class="saved-worlds" aria-label="Saved single-player worlds">Loading saved worlds…</div><button id="import-world" type="button">Import world backup</button><input id="import-file" type="file" accept=".json,application/json" hidden /></div>
-          <div class="world-choice"><h2>Multiplayer</h2><label for="server-address">Server address</label><input id="server-address" placeholder="http://server-address:6200" spellcheck="false" /><p>Join this host, or enter your Mac or Linux server’s address.</p><button id="join-server" type="button">Join multiplayer</button></div>
-        </div>
-        <button id="play" class="play-button" type="button" disabled hidden>Let's play <span aria-hidden="true">↗</span></button>
-        <button id="leave-world" class="leave-button" type="button" hidden>Save & leave</button>
-        <button id="inventory-toggle" class="inventory-toggle" type="button" disabled hidden>Inventory <kbd>I</kbd></button>
         <div class="instructions">
           <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</span>
           <span><kbd>SHIFT</kbd> hold to sprint</span>
@@ -80,19 +100,39 @@
           <span><kbd>V</kbd> toggle flying</span>
           <span><kbd>SPACE</kbd> up / <kbd>C</kbd> down in flight</span>
           <span><span class="mouse-icon" aria-hidden="true">◧</span> click to break</span>
-          <span><kbd>F</kbd> / right-click to place</span>
-          <span><kbd>1</kbd>–<kbd>9</kbd> hotbar slots / <kbd>0</kbd> door</span>
-          <span><kbd>E</kbd> pick the block you see</span>
+          <span><kbd>F</kbd> place / right-click place or interact</span>
+          <span>Scroll / <kbd>1</kbd>–<kbd>9</kbd> hotbar slots</span>
+          <span>Middle-click to pick a block</span>
           <span><kbd>I</kbd> open inventory</span>
-          <span><kbd>ESC</kbd> pause</span>
+          <span><kbd>ESC</kbd> pause / close menu</span>
           <span><kbd>M</kbd> mute / unmute</span>
           <span><kbd>P</kbd> performance stats</span>
           <span><kbd>T</kbd> hold / resume time</span>
           <span><kbd>N</kbd> next time of day</span>
           <span><kbd>Z</kbd> undo / <kbd>SHIFT</kbd><kbd>Z</kbd> redo</span>
-          <span><kbd>Q</kbd> open / close a door</span>
+          <span><kbd>E</kbd> / right-click to interact</span>
+          <span><kbd>0</kbd> choose a door</span>
           <span><kbd>L</kbd> lantern / <kbd>B</kbd> wooden slab</span>
           <span><kbd>R</kbd> choose / cycle flowers</span>
+        </div>
+        </section>
+        <div class="session-panel" data-menu-panel="pause" hidden>
+          <div id="network-status" class="session-row" role="status" hidden></div>
+          <button id="retry-connection" type="button" hidden>Try joining again</button>
+          <div id="save-row" class="save-row" hidden><span id="save-status" role="status" aria-live="polite">Preparing save…</span><button id="save-now" type="button">Save now</button><button id="export-world" type="button">Export backup</button></div>
+        </div>
+        <div id="world-chooser" class="world-chooser" data-menu-panel="single create multi" hidden>
+          <section class="world-library" data-menu-panel="single" aria-labelledby="world-library-title" hidden>
+            <div class="world-library-toolbar">
+              <div><h2 id="world-library-title">Saved worlds</h2><p id="world-count" role="status" aria-live="polite">Loading worlds…</p></div>
+              <div class="world-library-actions"><button type="button" data-menu-screen="create">Create New World</button><button id="import-world" type="button">Import Backup</button></div>
+            </div>
+            <label class="world-search-label" for="world-search"><span>Find a world</span><input id="world-search" type="search" aria-label="Search worlds by name or seed" placeholder="Search by world name or seed…" autocomplete="off" spellcheck="false" /></label>
+            <div id="saved-worlds" class="saved-worlds" tabindex="0" aria-label="Saved single-player worlds">Loading saved worlds…</div>
+            <input id="import-file" type="file" accept=".json,application/json" hidden />
+          </section>
+          <div class="world-choice" data-menu-panel="create" hidden><h2>A fresh start</h2><label for="world-name">World name</label><input id="world-name" maxlength="40" placeholder="My world" /><label for="world-mode">World mode</label><select id="world-mode"><option value="gather">Gather · collect &amp; build</option><option value="creative">Creative · unlimited blocks</option></select><label for="world-seed">Seed <small>(optional)</small></label><input id="world-seed" maxlength="80" placeholder="A new landscape every time" /><button id="create-world" type="button">Create a new world</button></div>
+          <div class="world-choice" data-menu-panel="multi" hidden><h2>Join a server</h2><label for="server-address">IP address or hostname</label><input id="server-address" placeholder="192.168.1.42" autocomplete="off" autocapitalize="none" spellcheck="false" /><label for="server-port">Port</label><input id="server-port" type="number" inputmode="numeric" min="1" max="65535" step="1" placeholder="6200" required /><p>Enter the server’s IP address and port. No http:// or https:// needed.</p><button id="join-server" type="button">Join multiplayer</button></div>
         </div>
         <p class="footnote" id="world-footnote">A world of your own, or one shared with friends</p>
         <p id="error" class="error" role="alert" hidden></p>
@@ -100,7 +140,7 @@
     </main>
     <dialog id="inventory-dialog" class="inventory-dialog" aria-labelledby="inventory-title" aria-describedby="inventory-description">
       <div class="inventory-card">
-        <header class="inventory-header"><div><span class="eyebrow">UNLIMITED SUPPLIES</span><h2 id="inventory-title">Creative inventory</h2></div><button id="inventory-close" type="button" aria-label="Close inventory to menu">×</button></header>
+        <header class="inventory-header"><div><span class="eyebrow">UNLIMITED SUPPLIES</span><h2 id="inventory-title">Creative inventory</h2></div><button id="inventory-close" type="button" aria-label="Close inventory">×</button></header>
         <p id="inventory-description">Choose a hotbar slot, then choose its block. Your supplies never run out.</p>
         <section id="inventory-crafting" class="inventory-crafting" hidden><h3>Crafting</h3><div id="inventory-recipes" class="inventory-recipes" aria-label="Choose a recipe"></div><div class="inventory-craft-action"><p id="inventory-recipe"></p><button id="inventory-craft" type="button">Make</button></div></section>
         <section id="inventory-storage-section" hidden><h3>Inventory</h3><nav id="inventory-storage" class="inventory-storage" aria-label="Backpack"></nav></section>
@@ -109,11 +149,11 @@
         <div id="inventory-catalog"><label class="inventory-search-label" for="inventory-search">Find a block</label><input id="inventory-search" class="inventory-search" type="search" placeholder="Search blocks and flowers…" autocomplete="off" spellcheck="false" />
         <p id="inventory-results" class="inventory-results" role="status" aria-live="polite"></p><div id="inventory-grid" class="inventory-grid" aria-label="Unlimited block supplies"></div></div>
         <div id="inventory-cursor" class="inventory-cursor" hidden></div>
-        <footer class="inventory-footer"><button id="inventory-reset" type="button">Reset hotbar</button><span>1–9 choose slot · I return · Esc menu</span><button id="inventory-back" type="button">Back to game</button></footer>
+        <footer class="inventory-footer"><button id="inventory-reset" type="button">Reset hotbar</button><span>1–9 choose slot · I return · Esc return</span><button id="inventory-back" type="button">Back to game</button></footer>
       </div>
     </dialog>
     <div id="crosshair" class="crosshair" aria-hidden="true" hidden></div>
-    <div id="mode-indicator" class="mode-indicator" hidden>FLYING <span>V to return to walking</span></div>
+    <div id="mode-indicator" class="mode-indicator" hidden>FLYING</div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <div id="touch-controls" class="touch-controls" aria-label="Touch game controls" hidden>
       <button type="button" data-touch="pause" class="touch-pause">Pause</button>
@@ -128,9 +168,9 @@
       <div class="touch-actions"><button type="button" data-touch="break">Break</button><button type="button" data-touch="place">Place</button><button type="button" data-touch="jump">Jump</button></div>
     </div>
     <footer class="hud">
-      <div id="play-hint" class="play-hint" hidden><span id="movement-hint">Shift to sprint</span> <span>·</span> Click to break <span>·</span> F / right-click to place <span>·</span> E to pick <span>·</span> Q use door <span>·</span> Z undo / Shift Z redo <span>·</span> Esc to pause</div>
+
       <nav id="hotbar" class="hotbar" aria-label="Choose a hotbar slot"></nav>
-      <span class="selected-caption" id="selected-caption">GRASS SELECTED · I INVENTORY</span>
+      <span class="selected-caption" id="selected-caption">GRASS</span>
     </footer>
     <script type="module" src="/src/main.js"></script>
   </body>

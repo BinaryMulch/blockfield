@@ -48,8 +48,8 @@ export class InventoryView {
     this.dialog.querySelector('#inventory-reset').addEventListener('click', callbacks.reset);
     this.dialog.querySelector('#inventory-craft').addEventListener('click', () => void this.craft());
     this.back.addEventListener('click', () => callbacks.close(true));
-    this.dialog.querySelector('#inventory-close').addEventListener('click', () => callbacks.close(false));
-    this.dialog.addEventListener('cancel', event => { event.preventDefault(); callbacks.close(false); });
+    this.dialog.querySelector('#inventory-close').addEventListener('click', () => callbacks.close(true));
+    this.dialog.addEventListener('cancel', event => { event.preventDefault(); callbacks.escape(); });
     this.render();
   }
   icon(block) { return this.icons.get(block)?.cloneNode(true) || document.createElement('span'); }
@@ -87,7 +87,7 @@ export class InventoryView {
     this.dialog.querySelector('#inventory-title').textContent = gather ? 'Inventory' : 'Creative inventory';
     this.dialog.querySelector('.eyebrow').textContent = gather ? 'GATHER & BUILD' : 'UNLIMITED SUPPLIES';
     this.dialog.querySelector('#inventory-description').textContent = gather ? 'Click to move a stack. Right-click to split or place one. Shift-click to move between your backpack and hotbar.' : 'Choose a hotbar slot, then choose its block. Your supplies never run out.';
-    this.dialog.querySelector('.inventory-footer > span').textContent = gather ? 'Click move · Right-click split · I return · Esc menu' : '1–9 choose slot · I return · Esc menu';
+    this.dialog.querySelector('.inventory-footer > span').textContent = gather ? 'Click move · Right-click split · I return · Esc return' : '1–9 choose slot · I return · Esc return';
     this.dialog.querySelector('#inventory-catalog').hidden = gather;
     this.dialog.querySelector('#inventory-storage-section').hidden = !gather;
     this.dialog.querySelector('#inventory-reset').hidden = gather;

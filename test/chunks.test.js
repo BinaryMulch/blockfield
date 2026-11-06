@@ -133,6 +133,20 @@ test('interest rings are bounded and joining accepts only normal web server addr
   assert.throws(() => serverURL('http://user:secret@example.com', 'http://localhost'));
 });
 
+test('joining accepts separate IP and port fields, including IPv6 and secure hosts', () => {
+  assert.equal(serverURL('192.168.1.5', 'http://localhost:6200', '6210').href, 'http://192.168.1.5:6210/?join=1');
+  assert.equal(serverURL('localhost', 'http://localhost:6200', '6200').href, 'http://localhost:6200/?join=1');
+  assert.equal(serverURL('example.com', 'https://game.example.com', '443').href, 'https://example.com/?join=1');
+  assert.equal(serverURL('::1', 'http://localhost:6200', '6200').href, 'http://[::1]:6200/?join=1');
+  assert.equal(serverURL('[::1]', 'http://localhost:6200', '6200').href, 'http://[::1]:6200/?join=1');
+  assert.equal(serverURL('', 'https://game.example.com', '443').href, 'https://game.example.com/?join=1');
+  assert.equal(serverURL('http://192.168.1.5:6200', 'https://example.com', '6210').href, 'http://192.168.1.5:6210/?join=1');
+  for (const port of ['', '0', '-1', '65536', 'abc', '62.5', '6e3']) {
+    assert.throws(() => serverURL('192.168.1.5', 'http://localhost:6200', port), /port number/);
+  }
+  assert.throws(() => serverURL('not a host', 'http://localhost:6200', '6200'), /IP address or hostname/);
+});
+
 test('deeper lakes have a single visible water surface without gaps between water cells', () => {
   const world = new World({ generate: false });
   world.set(8, 0, 8, STONE); world.set(8, 1, 8, WATER); world.set(8, 2, 8, WATER);

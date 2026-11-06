@@ -22,6 +22,8 @@ const ACTIONS = {
   break: { duration: 0.25, volume: 0.65, pitch: 1.15, seed: 3 },
   open: { duration: 0.2, volume: 0.45, pitch: 0.85, seed: 4 },
   close: { duration: 0.16, volume: 0.5, pitch: 1.05, seed: 5 },
+  splash: { duration: 0.48, volume: 0.8, pitch: 0.75, seed: 6 },
+  swim: { duration: 0.22, volume: 0.1, pitch: 0.6, seed: 7 },
 };
 
 // Short, repeatable PCM effects: filtered crunch plus a material-specific impact.
@@ -33,7 +35,8 @@ export function synthesizeSound(block, action, sampleRate, variant = 0) {
   const duration = effect.duration * material.decay;
   const samples = new Float32Array(Math.ceil(duration * sampleRate));
   const frequency = material.tone * effect.pitch * (1 + (variant - 1) * 0.045);
-  const filter = 1 - Math.exp(-2 * Math.PI * material.cutoff / sampleRate);
+  const swimming = block === WATER && action === 'swim';
+  const filter = 1 - Math.exp(-2 * Math.PI * (swimming ? 850 : material.cutoff) / sampleRate);
   let seed = block * 1009 + effect.seed * 7919 + variant * 127;
   let filtered = 0;
   for (let i = 0; i < samples.length; i++) {
@@ -41,13 +44,16 @@ export function synthesizeSound(block, action, sampleRate, variant = 0) {
     const white = (seed >>> 0) / 2147483648 - 1;
     filtered += filter * (white - filtered);
     const time = i / sampleRate;
-    const attack = Math.min(1, time / 0.003);
+    const attack = Math.min(1, time / (swimming ? 0.025 : 0.003));
     const release = Math.max(0, Math.min(1, (duration - time) / 0.012));
     const envelope = attack * release * Math.exp(-time / (duration * 0.25));
     const phase = 2 * Math.PI * frequency * (time + 0.025 * (1 - Math.exp(-time / 0.025)));
     const impact = Math.sin(phase) * 0.8 + Math.sin(phase * 2.1) * 0.2;
     const crumble = action === 'break' ? 0.8 + 0.2 * Math.sin(time * 230) : 1;
-    samples[i] = (filtered * material.noise * crumble + impact * material.ring) * envelope * effect.volume;
+    // Water uses a wash of noise with descending bubbles instead of a hard impact.
+    const watery = block === WATER && (action === 'splash' || action === 'swim');
+    const bubbles = Math.sin(2 * Math.PI * (420 * time - 240 * time * time)) * (0.5 + 0.5 * Math.sin(time * 65));
+    samples[i] = (watery ? filtered * 0.9 + bubbles * (swimming ? 0.015 : 0.18) : filtered * material.noise * crumble + impact * material.ring) * envelope * effect.volume;
   }
   return samples;
 }
@@ -72,6 +78,38 @@ export class FootstepTracker {
     if (this.distance < 1.7) return false;
     this.distance %= 1.7;
     return true;
+  }
+}
+
+function inWater(player, world) {
+  const x = Math.floor(player.x), z = Math.floor(player.z);
+  // Match the rendered 0.88-block surface, so walking beside a bank stays dry.
+  const feet = player.y + 0.1, y = Math.floor(feet);
+  return world.get(x, y, z) === WATER && (feet < y + 0.88 || world.get(x, y + 1, z) === WATER);
+}
+
+export class WaterSoundTracker {
+  wet = false;
+  distance = 0;
+  cooldown = 0;
+
+  reset() { this.wet = false; this.distance = 0; this.cooldown = 0; }
+
+  update(before, after, world, dt) {
+    this.wet = inWater(after, world);
+    this.cooldown = Math.max(0, this.cooldown - dt);
+    if (after.flying || !this.wet) { this.distance = 0; return null; }
+    if (!inWater(before, world)) {
+      this.distance = 0;
+      if (this.cooldown > 0) return null;
+      this.cooldown = 0.22;
+      return 'splash';
+    }
+    this.distance += Math.hypot(after.x - before.x, after.y - before.y, after.z - before.z);
+    if (this.distance < 1.7 || this.cooldown > 0) return null;
+    this.distance %= 1.7;
+    this.cooldown = 0.45;
+    return 'swim';
   }
 }
 

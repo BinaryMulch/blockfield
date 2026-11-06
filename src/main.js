@@ -4,7 +4,7 @@ import { HEIGHT, WATER, DOOR, LANTERN, SLAB, RED_FLOWER, FLOWER_TYPES, EYE_HEIGH
 import { ChunkWorld } from './chunks.js';
 import { ChunkRenderer } from './chunk-renderer.js';
 import { createTextureAtlas, createLanternEmissiveMap } from './textures.js';
-import { FootstepTracker, GameSounds } from './sound.js';
+import { FootstepTracker, WaterSoundTracker, GameSounds } from './sound.js';
 import { WorldSky } from './sky.js';
 import { GameSession, serverURL } from './session.js';
 import { browserSaves, saveMessage } from './browser-saves.js';
@@ -18,6 +18,8 @@ import { TouchControls } from './touch.js';
 import { GraphicsSettings } from './graphics.js';
 import { Inventory, CREATIVE_ITEMS, validInventory } from './inventory.js';
 import { InventoryView } from './inventory-ui.js';
+import { MenuScreens } from './menu.js';
+import { HotbarScroll } from './input.js';
 import './style.css';
 
 const menu = document.querySelector('#menu');
@@ -36,6 +38,7 @@ try {
 }
 
 function start() {
+  const screens = new MenuScreens(menu);
   const canvas = document.querySelector('#game');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   const graphics = new GraphicsSettings(renderer);
@@ -66,6 +69,8 @@ function start() {
   otherPlayers.prepareMaterial = material => lanternLighting.applyMaterial(material);
   const sounds = new GameSounds();
   const footsteps = new FootstepTracker();
+  const waterSounds = new WaterSoundTracker();
+  const hotbarScroll = new HotbarScroll();
   const soundToggle = document.querySelector('#sound-toggle');
   function toggleSound() {
     sounds.setEnabled(!sounds.enabled);
@@ -101,6 +106,10 @@ function start() {
   let inventoryOpen = false;
   let inventoryReturnToPlay = false;
   let inventoryProfile = null;
+  let expectedPointerUnlock = false;
+  let pointerCaptureWanted = false;
+  let optionalPointerCapture = false;
+  let captureAfterEscape = false;
   const touch = new TouchControls(canvas, camera, {
     jump() { if (!player.flying) jumpQueued = true; },
     pause: pauseGame,
@@ -133,9 +142,7 @@ function start() {
   raycaster.far = 6;
   const center = new THREE.Vector2();
   const crosshair = document.querySelector('#crosshair');
-  const hint = document.querySelector('#play-hint');
   const toast = document.querySelector('#toast');
-  const movementHint = document.querySelector('#movement-hint');
   const modeIndicator = document.querySelector('#mode-indicator');
   const timeToggle = document.querySelector('#time-toggle');
   const timeLabel = document.querySelector('#time-label');
@@ -156,6 +163,7 @@ function start() {
     action(args) { return history.request('inventory', args); },
     craft(block) { return history.request('craft', { block }); },
     close: closeInventory,
+    escape() { closeInventory(true, { fromEscape: true }); },
   });
   inventoryButton.addEventListener('click', openInventory);
   renderHotbar();
@@ -190,7 +198,7 @@ function start() {
       const name = document.createElement('span'); name.textContent = BLOCK_NAMES[block] || 'Empty';
       button.append(key); if (block) button.append(supply, inventoryView.icon(block)); button.append(name); hotbar.append(button);
     });
-    document.querySelector('#selected-caption').textContent = `${(BLOCK_NAMES[selected] || 'EMPTY SLOT').toUpperCase()}${inventory.mode === 'gather' && selected ? ` · ${inventory.slotCount(inventory.selected)} LEFT` : ''} · I INVENTORY`;
+    document.querySelector('#selected-caption').textContent = `${(BLOCK_NAMES[selected] || 'EMPTY SLOT').toUpperCase()}${inventory.mode === 'gather' && selected ? ` · ${inventory.slotCount(inventory.selected)} LEFT` : ''}`;
   }
 
   function inventoryChanged() {
@@ -220,13 +228,18 @@ function start() {
     pauseGame(); menu.hidden = true; inventoryView.open(inventoryReturnToPlay);
   }
 
-  function closeInventory(resume = false) {
+  function closeInventory(resume = false, { fromEscape = false } = {}) {
     if (!inventoryOpen) return;
-    const returnToPlay = resume && inventoryReturnToPlay;
+    const returnToPlay = resume && (inventoryReturnToPlay || fromEscape);
     inventoryOpen = false; inventoryReturnToPlay = false;
-    inventoryView.close(); menu.hidden = false;
-    play.focus({ preventScroll: true });
-    if (returnToPlay && !play.disabled) requestPlay();
+    inventoryView.close();
+    if (returnToPlay && history.ready && !play.disabled) {
+      if (fromEscape) resumeFromEscape();
+      else { menu.hidden = false; requestPlay(); }
+    } else {
+      menu.hidden = false;
+      play.focus({ preventScroll: true });
+    }
   }
 
   function cycleFlower() {
@@ -238,7 +251,7 @@ function start() {
     const block = isFlower(selected) ? FLOWER_TYPES[(FLOWER_TYPES.indexOf(selected) + 1) % FLOWER_TYPES.length]
       : inventory.hotbar.find(isFlower) || RED_FLOWER;
     select(block);
-    if (playing) notify(`${BLOCK_NAMES[block]} · ${touch.enabled ? 'Tap this slot to change flower' : 'R to change flower'}`);
+    if (playing) notify(BLOCK_NAMES[block]);
   }
 
   function clearInput() {
@@ -247,6 +260,8 @@ function start() {
     jumpQueued = false;
     accumulator = 0;
     footsteps.reset();
+    waterSounds.reset();
+    hotbarScroll.reset();
     sounds.stop();
     clearTimeout(toastTimer);
     toast.classList.remove('visible');
@@ -255,14 +270,17 @@ function start() {
   function updateMode() {
     modeIndicator.hidden = !player.flying;
     touch.setFlying(player.flying);
-    movementHint.textContent = player.flying ? 'Space up · C down · Shift faster' : 'Shift to sprint';
   }
 
-  function requestPlay() {
+  function requestPlay({ optionalCapture = false } = {}) {
     if (!history.ready) return;
+    captureAfterEscape = false;
     error.hidden = true;
     void sounds.resume();
     if (touch.enabled) { setPlaying(true); return; }
+    pointerCaptureWanted = true;
+    optionalPointerCapture = optionalCapture;
+    if (optionalCapture) setPlaying(true);
     // Desktop mouse input uses pointer lock; touch play does not need it.
     try {
       const request = canvas.requestPointerLock();
@@ -274,11 +292,13 @@ function start() {
   play.addEventListener('click', requestPlay);
 
   function showPointerError() {
+    if (optionalPointerCapture || playing) return;
     error.hidden = false;
     error.textContent = 'Mouse capture is unavailable. Choose Touch under Controls, or try Play again with a supported mouse browser.';
   }
   document.addEventListener('pointerlockerror', showPointerError);
   function setPlaying(active) {
+    if (!active) pointerCaptureWanted = false;
     if (playing === active) return;
     playing = active;
     diagnostics.reset();
@@ -287,17 +307,16 @@ function start() {
     touch.setActive(active);
     menu.hidden = active || inventoryOpen;
     crosshair.hidden = !active;
-    hint.hidden = !active || touch.enabled;
     document.body.classList.toggle('playing', active);
     if (active) {
       hasPlayed = true;
       play.blur();
     } else {
       outline.visible = false;
+      if (screens.inWorld) screens.show('pause');
       if (!history.backend?.saveError) void history.flush();
       if (hasPlayed) {
-        document.querySelector('#menu-title').textContent = 'Take your time.';
-        document.querySelector('#menu-description').textContent = currentWorldDescription;
+        screens.describeWorld(currentWorldDescription);
         play.innerHTML = 'Keep playing <span aria-hidden="true">↗</span>';
       }
     }
@@ -305,14 +324,35 @@ function start() {
   }
   function pauseGame() {
     setPlaying(false);
-    if (document.pointerLockElement === canvas) controls.unlock();
+    if (document.pointerLockElement === canvas && !expectedPointerUnlock) {
+      expectedPointerUnlock = true;
+      controls.unlock();
+    }
   }
   controls.addEventListener('lock', () => {
-    if (inventoryOpen || !history.ready) { controls.unlock(); return; }
+    expectedPointerUnlock = false;
+    if (!pointerCaptureWanted || inventoryOpen || !history.ready) {
+      expectedPointerUnlock = true;
+      controls.unlock(); return;
+    }
     setPlaying(true);
   });
-  controls.addEventListener('unlock', () => setPlaying(false));
+  controls.addEventListener('unlock', () => {
+    // Releasing the mouse for inventory is asynchronous. A late notification
+    // must not reopen the pause menu after inventory has already been closed.
+    if (expectedPointerUnlock) { expectedPointerUnlock = false; return; }
+    if (!playing || !controls.isLocked) return;
+    setPlaying(false);
+  });
+  function resumeFromEscape() {
+    pointerCaptureWanted = true;
+    setPlaying(true);
+    // Escape is also the browser's unlock gesture. Wait until it is released
+    // before trying to capture the mouse, and never gate closing a menu on it.
+    captureAfterEscape = true;
+  }
   window.addEventListener('blur', () => {
+    captureAfterEscape = false;
     inventoryReturnToPlay = false;
     if (inventoryOpen) inventoryView.back.textContent = 'Back to menu';
     clearInput();
@@ -320,6 +360,7 @@ function start() {
   });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
+      captureAfterEscape = false;
       inventoryReturnToPlay = false;
       if (inventoryOpen) inventoryView.back.textContent = 'Back to menu';
       clearInput();
@@ -332,8 +373,19 @@ function start() {
   document.addEventListener('keydown', (event) => {
     const typing = event.target.closest?.('input, textarea, select, [contenteditable="true"]');
     const modified = event.metaKey || event.ctrlKey || event.altKey;
+    if (event.code === 'Escape') {
+      event.preventDefault();
+      // The browser can consume Escape keyup when releasing pointer lock.
+      // Rely on repeat instead of a held-key flag that could survive that press.
+      if (event.repeat) return;
+      if (inventoryOpen) { closeInventory(true, { fromEscape: true }); return; }
+      if (diagnostics.enabled) diagnostics.setEnabled(false);
+      if (playing) pauseGame();
+      else if (history.ready && !play.disabled) resumeFromEscape();
+      else screens.goBack();
+      return;
+    }
     if (inventoryOpen) {
-      if (event.code === 'Escape') { event.preventDefault(); closeInventory(false); return; }
       if (!typing && !modified && !event.repeat) {
         if (event.code === 'KeyI') { event.preventDefault(); closeInventory(true); }
         else if (/^Digit[1-9]$/.test(event.code)) { event.preventDefault(); const index = Number(event.code.slice(-1)) - 1; if (!inventoryView.hotbarKey(index) && inventory.select(index)) inventoryChanged(); }
@@ -355,6 +407,7 @@ function start() {
       toggleSound();
       return;
     }
+    if (!playing) return;
     if (/^Digit[1-9]$/.test(event.code) && !event.repeat && !modified) {
       event.preventDefault(); if (inventory.select(Number(event.code.slice(-1)) - 1)) inventoryChanged(); return;
     }
@@ -374,47 +427,63 @@ function start() {
       if (!event.repeat) cycleFlower();
       return;
     }
-    if (!playing) return;
     if (['KeyZ', 'KeyY'].includes(event.code) && !event.altKey) {
       event.preventDefault();
       if (!event.repeat) replayEdit(event.code === 'KeyY' || event.shiftKey);
       return;
     }
-    if (event.code === 'KeyQ' && !event.metaKey && !event.ctrlKey && !event.altKey) {
+    if (event.code === 'KeyE' && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
       if (!event.repeat) useDoor();
       return;
     }
-    if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC', 'KeyV', 'KeyF', 'KeyE', 'ShiftLeft', 'ShiftRight'].includes(event.code)) event.preventDefault();
+    if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC', 'KeyV', 'KeyF', 'ShiftLeft', 'ShiftRight'].includes(event.code)) event.preventDefault();
     keys.add(event.code);
     if (event.code === 'Space' && !event.repeat && !player.flying) jumpQueued = true;
-    if (event.code === 'Escape') pauseGame();
     if (event.code === 'KeyV' && !event.repeat) toggleFlight();
     if (event.code === 'KeyF' && !event.repeat) editBlock(true);
-    if (event.code === 'KeyE' && !event.repeat) {
-      updateTarget();
-      if (target) {
-        const block = buildBlock(world.get(target.x, target.y, target.z));
-        if (inventory.mode === 'gather' && !inventory.count(block)) notify(`Collect ${BLOCK_NAMES[block]} first.`);
-        else { select(block); notify(`${BLOCK_NAMES[block]} selected`); }
-      } else notify('Look at a nearby block to pick its material.');
-    }
   });
+  function pickBlock() {
+    updateTarget();
+    if (target) {
+      const block = buildBlock(world.get(target.x, target.y, target.z));
+      if (inventory.mode === 'gather' && !inventory.count(block)) notify(`Collect ${BLOCK_NAMES[block]} first.`);
+      else { select(block); notify(`${BLOCK_NAMES[block]} selected`); }
+    } else notify('Look at a nearby block to pick its material.');
+  }
+
   function toggleFlight() {
     player.flying = !player.flying;
     player.vy = 0; player.grounded = false; jumpQueued = false;
-    touch.reset(); footsteps.reset(); sounds.stop(); updateMode();
-    notify(player.flying ? touch.enabled ? 'Flying · Hold Up or Down' : 'Flying · Space to rise, C to descend' : 'Walking mode');
+    touch.reset(); footsteps.reset(); waterSounds.reset(); sounds.stop(); updateMode();
+    notify(player.flying ? 'Flying' : 'Walking');
   }
-  document.addEventListener('keyup', (event) => keys.delete(event.code));
+  document.addEventListener('keyup', (event) => {
+    keys.delete(event.code);
+    if (event.code !== 'Escape') return;
+    const capture = captureAfterEscape && playing;
+    captureAfterEscape = false;
+    if (capture) requestPlay({ optionalCapture: true });
+  });
   canvas.addEventListener('contextmenu', (event) => event.preventDefault());
   canvas.addEventListener('mousedown', (event) => {
     if (!playing || touch.enabled) return;
-    if (event.button === 0 || event.button === 2) {
-      event.preventDefault();
-      editBlock(event.button === 2 || event.ctrlKey);
+    if (document.pointerLockElement !== canvas) {
+      event.preventDefault(); requestPlay({ optionalCapture: true }); return;
+    }
+    if (event.button === 1) { event.preventDefault(); pickBlock(); }
+    else if (event.button === 2 || (event.button === 0 && event.ctrlKey)) {
+      event.preventDefault(); void interactOrPlace();
+    } else if (event.button === 0) {
+      event.preventDefault(); void editBlock(false);
     }
   });
+  document.addEventListener('wheel', event => {
+    if (!playing || inventoryOpen || event.ctrlKey || event.metaKey) return;
+    event.preventDefault();
+    const direction = hotbarScroll.update(event, performance.now());
+    if (direction && inventory.select((inventory.selected + direction + inventory.hotbar.length) % inventory.hotbar.length)) inventoryChanged();
+  }, { passive: false });
   hotbar.addEventListener('click', event => {
     const slot = event.target.closest('[data-slot]'); if (!slot) return;
     const index = Number(slot.dataset.slot);
@@ -444,7 +513,7 @@ function start() {
     outline.visible = playing;
   }
 
-  async function useDoor() {
+  function interactionTarget() {
     updateTarget();
     let door = target && world.doorAt(target.x, target.y, target.z);
     let nearest = target?.distance ?? raycaster.far;
@@ -460,10 +529,19 @@ function start() {
         if (distance <= nearest) { door = candidate; nearest = distance; }
       }
     }
-    if (!door) { notify('Look at a nearby door to open or close it.'); return; }
+    return door;
+  }
+
+  async function interactOrPlace() {
+    const door = interactionTarget();
+    if (door) await useDoor(door);
+    else await editBlock(true);
+  }
+
+  async function useDoor(door = interactionTarget()) {
+    if (!door) { notify('Look at a nearby door to interact.'); return; }
     const result = await history.toggleDoor(door.x, door.y, door.z);
     if (!result.ok) { editError(result); return; }
-    notify(door.open ? 'Door closed' : 'Door opened');
   }
 
   async function editBlock(place) {
@@ -606,10 +684,12 @@ function start() {
           sprint: keys.has('ShiftLeft') || keys.has('ShiftRight') || touch.sprint,
           rise: Number(keys.has('Space')) - Number(keys.has('KeyC')) + touch.rise,
         }, fixedStep);
-        if (footsteps.update(before, player)) {
+        const waterAction = waterSounds.update(before, player, world, fixedStep);
+        if (waterAction) sounds.play(WATER, waterAction);
+        if (waterSounds.wet) footsteps.reset();
+        else if (footsteps.update(before, player)) {
           const x = Math.floor(player.x), z = Math.floor(player.z);
-          const wet = world.get(x, Math.floor(player.y + 0.1), z) === WATER;
-          const block = wet ? WATER : world.get(x, Math.floor(player.y - 0.05), z);
+          const block = world.get(x, Math.floor(player.y - 0.05), z);
           sounds.play(block, 'step');
         }
         jumpQueued = false;
@@ -629,8 +709,8 @@ function start() {
     play.disabled = !history.ready || !chunkRenderer.readyAt(player);
     inventoryButton.disabled = !history.ready;
     timeToggle.disabled = !history.ready;
-    if (history.ready && !chunkRenderer.readyAt(player)) connection.textContent = 'Preparing nearby terrain…';
-    else if (history.ready && connection.textContent === 'Preparing nearby terrain…') connection.textContent = history.mode === 'single' ? 'Single player · Private world' : 'Connected';
+    if (history.ready && !chunkRenderer.readyAt(player)) setConnectionStatus('Preparing nearby terrain…');
+    else if (history.ready && connection.textContent === 'Preparing nearby terrain…') setConnectionStatus(history.mode === 'single' ? 'Single player · Private world' : '');
     const coordinates = document.querySelector('#coordinates');
     coordinates.hidden = !history.mode;
     if (history.mode) coordinates.textContent = `X ${Math.floor(player.x)} · Z ${Math.floor(player.z)}`;
@@ -660,9 +740,15 @@ function start() {
 
   const nameInput = document.querySelector('#player-name');
   const connection = document.querySelector('#network-status');
-  const joinLink = document.querySelector('#join-link');
-  const chooser = document.querySelector('#world-chooser');
-  const inviteRow = document.querySelector('#invite-row');
+  const sessionMode = document.querySelector('#session-mode');
+  const sessionModeLabel = document.querySelector('#session-mode-label');
+  const sessionModeValue = document.querySelector('#session-mode-value');
+  const connectedPlayers = document.querySelector('#connected-players');
+  const connectedPlayerList = document.querySelector('#connected-player-list');
+  const connectedPlayerCount = document.querySelector('#connected-player-count');
+  const connectedPlayersStatus = document.querySelector('#connected-players-status');
+  let playerCapacity = 8;
+  let playerListSignature = '';
   const leaveButton = document.querySelector('#leave-world');
   const saveRow = document.querySelector('#save-row');
   const saveStatus = document.querySelector('#save-status');
@@ -670,6 +756,10 @@ function start() {
   const exportWorld = document.querySelector('#export-world');
   let currentWorldDescription = 'Wander the woods. Break a block. Build something.';
   const retryButton = document.querySelector('#retry-connection');
+  function setConnectionStatus(text) {
+    connection.textContent = text;
+    connection.hidden = !text;
+  }
   try { nameInput.value = localStorage.getItem('blockfield-name') || ''; } catch { /* Names are optional. */ }
   history.pose = () => ({ x: player.x, y: player.y, z: player.z, yaw: camera.rotation.y, pitch: camera.rotation.x,
     active: playing, flying: player.flying });
@@ -679,10 +769,11 @@ function start() {
       inventory.restore({ ...saved, selected: inventory.selected }); renderHotbar(); inventoryView.render();
     },
     status(text) {
-      connection.textContent = text;
+      setConnectionStatus(text);
       play.disabled = true;
       retryButton.hidden = !history.blocked;
       document.querySelector('#player-count').textContent = 'connecting';
+      if (history.mode === 'multiplayer') renderConnectedPlayers([], history.blocked ? 'Not connected.' : 'Connecting…');
     },
     welcome(message) {
       Object.assign(player, message.self, { vy: 0, grounded: false });
@@ -691,25 +782,28 @@ function start() {
       error.hidden = true;
       nameInput.value = message.self.name;
       currentWorldDescription = `${message.worldName} · ${message.gameMode === 'gather' ? 'Gather' : 'Creative'} · Seed: ${message.world.seed}`;
-      document.querySelector('#menu-description').textContent = currentWorldDescription;
+      screens.describeWorld(currentWorldDescription);
+      sessionMode.dataset.mode = message.gameMode;
+      sessionModeValue.textContent = { creative: 'Creative · unlimited blocks', gather: 'Gather · collect & build' }[message.gameMode] || 'Unknown';
       loadInventory(message);
       play.disabled = true;
       retryButton.hidden = true;
       saveNow.hidden = exportWorld.hidden = history.mode !== 'single';
       saveNow.disabled = false;
       if (history.mode !== 'single') {
+        setConnectionStatus('');
         saveStatus.dataset.state = 'saved';
-        saveStatus.textContent = message.persistence ? 'Server autosaves to disk' : 'This host has saving disabled';
+        saveStatus.textContent = message.persistence ? '' : 'This host has saving disabled';
+        saveRow.hidden = !!message.persistence;
         document.querySelector('#world-footnote').textContent = message.persistence ? 'Shared world · Saved on the host' : 'Shared world · Temporary host';
       }
-      const local = ['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
-      joinLink.value = `${local ? message.urls[0] || location.origin + '/' : location.origin + '/'}?join=1`;
+      playerCapacity = message.maxPlayers || 8;
     },
     players(players) {
       if (otherPlayers.sync(players, history.selfId)) renderer.shadowMap.needsUpdate = true;
-      const text = history.mode === 'single' ? 'Single player · Private world' : `${players.length} / 8 players · Connected`;
-      if (connection.textContent !== text) connection.textContent = text;
-      document.querySelector('#player-count').textContent = history.mode === 'single' ? 'single player' : `${players.length} / 8 players`;
+      if (history.mode === 'multiplayer') renderConnectedPlayers(players);
+      if (history.mode === 'single') setConnectionStatus('Single player · Private world');
+      document.querySelector('#player-count').textContent = history.mode === 'single' ? 'single player' : `${players.length} / ${playerCapacity} players`;
     },
     clock(clock) {
       if (Math.abs(clock.phase - sky.clock.phase) > 0.01 || clock.held !== sky.clock.held) sky.forceShadow = true;
@@ -727,6 +821,7 @@ function start() {
     },
     edit(message) { finishEdit(message.changes[0], undefined, message.changes); },
     disconnected() {
+      renderConnectedPlayers([], 'Not connected.');
       closeInventory(false);
       play.disabled = true;
       pauseGame();
@@ -742,25 +837,45 @@ function start() {
     if (history.ready) void history.request('name', { name });
   });
   retryButton.addEventListener('click', () => history.connect(nameInput.value));
-  document.querySelector('#copy-link').addEventListener('click', async () => {
-    try {
-      if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(joinLink.value);
-      else { joinLink.focus(); joinLink.select(); if (!document.execCommand('copy')) throw new Error('Select link'); }
-      document.querySelector('#copy-link').textContent = 'Copied!';
-      setTimeout(() => { document.querySelector('#copy-link').textContent = 'Copy'; }, 1600);
-    } catch { joinLink.focus(); joinLink.select(); notify('Select and copy the Wi-Fi link.'); }
-  });
+  function renderConnectedPlayers(players, status = '') {
+    const sorted = [...players].sort((a, b) => Number(b.id === history.selfId) - Number(a.id === history.selfId) || a.name.localeCompare(b.name));
+    const signature = JSON.stringify([history.selfId, playerCapacity, status, sorted.map(p => [p.id, p.name, p.color])]);
+    // Player positions arrive several times per second; names only need to be
+    // redrawn when the roster changes.
+    if (signature === playerListSignature) return;
+    playerListSignature = signature;
+    connectedPlayerCount.textContent = `${sorted.length} / ${playerCapacity}`;
+    connectedPlayersStatus.hidden = !status;
+    connectedPlayersStatus.textContent = status;
+    connectedPlayerList.replaceChildren();
+    for (const player of sorted) {
+      const row = document.createElement('li'); row.dataset.playerId = player.id;
+      const color = document.createElement('span'); color.className = 'connected-player-color'; color.style.backgroundColor = player.color; color.setAttribute('aria-hidden', 'true');
+      const name = document.createElement('span'); name.className = 'connected-player-name'; name.textContent = player.name;
+      row.append(color, name);
+      if (player.id === history.selfId) {
+        const you = document.createElement('span'); you.className = 'connected-player-you'; you.textContent = 'You'; row.append(you);
+      }
+      connectedPlayerList.append(row);
+    }
+  }
   function openSession(mode) {
     closeInventory(false); inventoryProfile = null;
     pauseGame();
     diagnostics.reset();
-    chooser.hidden = true; play.hidden = false; leaveButton.hidden = false;
+    screens.setSession(true);
+    sessionModeLabel.textContent = mode === 'multiplayer' ? 'Server mode' : 'World mode';
+    sessionModeValue.textContent = mode === 'multiplayer' ? 'Checking server…' : 'Loading world…';
+    delete sessionMode.dataset.mode;
+    play.hidden = false; leaveButton.hidden = false;
     inventoryButton.hidden = false; inventoryButton.disabled = true;
-    inviteRow.hidden = mode !== 'multiplayer';
+    menu.classList.toggle('multiplayer-session', mode === 'multiplayer');
+    connectedPlayers.hidden = mode !== 'multiplayer';
+    playerCapacity = 8; renderConnectedPlayers([], 'Connecting…');
     document.querySelector('#world-footnote').textContent = mode === 'single'
       ? 'Private world · Autosaved in this browser'
       : 'Shared world · Hosted by the server';
-    saveRow.hidden = false;
+    saveRow.hidden = mode !== 'single';
     saveNow.hidden = exportWorld.hidden = mode !== 'single';
     error.hidden = true;
   }
@@ -776,7 +891,7 @@ function start() {
   });
   document.querySelector('#join-server').addEventListener('click', () => {
     try {
-      const url = serverURL(document.querySelector('#server-address').value);
+      const url = serverURL(document.querySelector('#server-address').value, location.origin, document.querySelector('#server-port').value);
       if (url.origin !== location.origin) { url.searchParams.set('name', nameInput.value.slice(0, 20)); location.assign(url); return; }
       openSession('multiplayer'); history.connect(nameInput.value);
     } catch (cause) { error.hidden = false; error.textContent = cause.message; }
@@ -787,13 +902,14 @@ function start() {
     diagnostics.reset();
     history.disconnect(); chunkRenderer.reset(); world.chunks.clear(); lanternLighting.sync(world);
     otherPlayers.sync([], null); clearInput();
-    chooser.hidden = false; play.hidden = true; leaveButton.hidden = true; inviteRow.hidden = true;
+    screens.setSession(false);
+    play.hidden = true; leaveButton.hidden = true;
+    menu.classList.remove('multiplayer-session'); connectedPlayers.hidden = true;
+    renderConnectedPlayers([]);
     inventoryButton.hidden = true; inventoryButton.disabled = true;
     saveRow.hidden = true;
-    connection.textContent = 'Choose single player or multiplayer';
+    setConnectionStatus('');
     document.querySelector('#player-count').textContent = 'choose a world';
-    document.querySelector('#menu-title').innerHTML = 'Make a little<br />space of your own.';
-    document.querySelector('#menu-description').textContent = 'Wander the woods. Break a block. Build something.';
     document.querySelector('#world-footnote').textContent = 'A world of your own, or one shared with friends';
     play.innerHTML = 'Let’s play <span aria-hidden="true">↗</span>'; hasPlayed = false;
     window.history.replaceState({}, '', location.pathname);
@@ -813,25 +929,66 @@ function start() {
     link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   exportWorld.addEventListener('click', () => { const save = history.snapshot(); if (save) download(save); });
+  const worldList = document.querySelector('#saved-worlds');
+  const worldSearch = document.querySelector('#world-search');
+  const worldCount = document.querySelector('#world-count');
+  let savedWorlds = [];
+  worldSearch.addEventListener('input', renderSavedWorlds);
+  screens.onChange = screen => { if (screen === 'single') void refreshSavedWorlds(); };
+
+  function renderSavedWorlds() {
+    const list = worldList;
+    const query = worldSearch.value.trim().toLocaleLowerCase();
+    const saves = savedWorlds.filter(save => `${save.name} ${save.world?.seed || ''}`.toLocaleLowerCase().includes(query));
+    worldCount.textContent = query ? `${saves.length} of ${savedWorlds.length} worlds` : `${savedWorlds.length} ${savedWorlds.length === 1 ? 'world' : 'worlds'} · Most recently saved first`;
+    list.replaceChildren();
+    if (!saves.length) {
+      const empty = document.createElement('p'); empty.className = 'world-list-empty';
+      empty.textContent = savedWorlds.length ? 'No worlds match your search. Try another name or seed.' : 'No worlds yet. Create your first world or import a backup to get started.';
+      list.append(empty); return;
+    }
+    for (const save of saves) {
+      const row = document.createElement('div'); row.className = 'saved-world'; row.dataset.worldId = save.id;
+      const info = document.createElement('div'); info.className = 'saved-world-info';
+      const title = document.createElement('strong'); title.className = 'saved-world-title'; title.textContent = save.name || 'Saved world';
+      const details = document.createElement('span'); details.className = 'saved-world-details';
+      details.textContent = `${save.gameMode === 'gather' ? 'Gather' : 'Creative'} · Saved ${new Date(save.updatedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`;
+      const seed = document.createElement('span'); seed.className = 'saved-world-seed'; seed.textContent = `Seed: ${save.world?.seed || 'unknown'}`;
+      info.append(title, details, seed);
+      const actions = document.createElement('div'); actions.className = 'saved-world-actions';
+      const resume = document.createElement('button'); resume.type = 'button'; resume.textContent = 'Open';
+      resume.setAttribute('aria-label', `Open ${save.name || 'saved world'}`);
+      resume.addEventListener('click', () => void localWorld(() => history.resume(nameInput.value, save.id)));
+      const backup = document.createElement('button'); backup.type = 'button'; backup.textContent = 'Export';
+      backup.setAttribute('aria-label', `Export ${save.name || 'saved world'}`);
+      backup.addEventListener('click', async () => { try { download(await browserSaves.load(save.id)); } catch (cause) { error.hidden = false; error.textContent = saveMessage(cause); } });
+      const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'delete-world'; remove.textContent = 'Delete';
+      remove.setAttribute('aria-label', `Delete ${save.name || 'saved world'}`);
+      remove.addEventListener('click', async () => {
+        if (!window.confirm(`Delete “${save.name || 'Saved world'}”?\n\nThis permanently removes the world from this browser. Export a backup first if you want to keep it.`)) return;
+        resume.disabled = backup.disabled = remove.disabled = true;
+        remove.textContent = 'Deleting…';
+        try {
+          await browserSaves.remove(save.id, save.saveRevision);
+          await refreshSavedWorlds(); error.hidden = true;
+          notify(`Deleted “${save.name || 'Saved world'}”.`);
+        } catch (cause) {
+          if (cause.code === 'SAVE_CONFLICT') await refreshSavedWorlds();
+          error.hidden = false; error.textContent = saveMessage(cause);
+        } finally {
+          resume.disabled = backup.disabled = remove.disabled = false;
+          remove.textContent = 'Delete';
+        }
+      });
+      actions.append(resume, backup, remove); row.append(info, actions); list.append(row);
+    }
+  }
+
   async function refreshSavedWorlds() {
-    const list = document.querySelector('#saved-worlds');
     try {
-      const saves = await browserSaves.list();
-      list.replaceChildren();
-      if (!saves.length) { list.textContent = 'Your saved worlds will appear here.'; return; }
-      for (const save of saves) {
-        const row = document.createElement('div'); row.className = 'saved-world'; row.dataset.worldId = save.id;
-        const title = document.createElement('span'); title.textContent = save.name || 'Saved world';
-        title.title = `${save.gameMode === 'gather' ? 'Gather' : 'Creative'} · Seed: ${save.world?.seed || 'unknown'}`;
-        const resume = document.createElement('button'); resume.type = 'button'; resume.textContent = 'Open';
-        resume.setAttribute('aria-label', `Open ${save.name || 'saved world'}`);
-        resume.addEventListener('click', () => void localWorld(() => history.resume(nameInput.value, save.id)));
-        const backup = document.createElement('button'); backup.type = 'button'; backup.textContent = 'Export';
-        backup.setAttribute('aria-label', `Export ${save.name || 'saved world'}`);
-        backup.addEventListener('click', async () => { try { download(await browserSaves.load(save.id)); } catch (cause) { error.hidden = false; error.textContent = saveMessage(cause); } });
-        row.append(title, resume, backup); list.append(row);
-      }
-    } catch (cause) { list.textContent = saveMessage(cause); }
+      savedWorlds = await browserSaves.list();
+      renderSavedWorlds();
+    } catch (cause) { worldCount.textContent = 'Saves unavailable'; worldList.textContent = saveMessage(cause); }
   }
   const importFile = document.querySelector('#import-file');
   document.querySelector('#import-world').addEventListener('click', () => importFile.click());
@@ -841,12 +998,14 @@ function start() {
       if (file.size > MAX_SAVE_BYTES) throw new Error('That world file is too large.');
       const save = validateSave(JSON.parse(await file.text()));
       await browserSaves.save({ ...save, id: newWorldId(), name: `${save.name.slice(0, 29)} (imported)`, createdAt: Date.now(), updatedAt: Date.now(), saveRevision: 0 }, 0);
+      worldSearch.value = ''; worldList.scrollTop = 0;
       await refreshSavedWorlds(); error.hidden = true; notify('World imported');
     } catch (cause) { error.hidden = false; error.textContent = saveMessage(cause); }
     finally { importFile.value = ''; }
   });
   void refreshSavedWorlds();
-  document.querySelector('#server-address').value = location.origin;
+  document.querySelector('#server-address').value = location.hostname;
+  document.querySelector('#server-port').value = location.port || (location.protocol === 'https:' ? '443' : '80');
   const query = new URLSearchParams(location.search);
   if (query.has('name')) nameInput.value = query.get('name').slice(0, 20);
   if (query.get('join') === '1') { openSession('multiplayer'); history.connect(nameInput.value); }

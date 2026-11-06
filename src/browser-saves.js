@@ -53,6 +53,18 @@ export const browserSaves = {
     if (!save) throw new SaveError('That saved world could not be found.');
     return validateSave(save);
   },
+  async remove(id, expectedRevision) {
+    return transaction('readwrite', (store, result, abort, summaries) => {
+      const request = summaries.get(id);
+      request.onsuccess = () => {
+        if (request.result && (request.result.saveRevision || 0) !== expectedRevision) {
+          abort(new SaveError('This world changed in another tab. Review the refreshed list before deleting it.', 'SAVE_CONFLICT'));
+          return;
+        }
+        store.delete(id); summaries.delete(id);
+      };
+    });
+  },
   async save(save, expectedRevision = 0) {
     validateSave(save);
     return transaction('readwrite', (store, result, abort, summaries) => {

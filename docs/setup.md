@@ -111,3 +111,26 @@ Settings are environment variables. For manual starts, prefix `npm start` with t
 | `GAME_MODE` | `gather`; choose `creative` for unlimited supplies |
 
 Name, seed, and mode initialize **new** server worlds only. Existing saves restore their own settings. One server may write to a given save directory at a time. No automatic release/update pipeline is required.
+
+### Set the game mode on the VM
+
+For the root-based VM installation above, edit `/etc/systemd/system/blockfield.service` directly. This setup does not load `/etc/blockfield.env`; that file belongs to the separate advanced installation.
+
+Under `[Service]`, add:
+
+```ini
+Environment=GAME_MODE=gather
+```
+
+To create a separate Gather world, replace the existing `DATA_DIR` line with a new directory:
+
+```ini
+Environment=DATA_DIR=/root/blockfield/data-gather
+```
+
+The previous world stays in `/root/blockfield/data`. Changing `GAME_MODE` alone does not convert an existing saved world. Apply service-file changes with:
+
+```sh
+systemctl daemon-reload
+systemctl restart blockfield
+```
