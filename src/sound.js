@@ -1,84 +1,24 @@
-import { GRASS, DIRT, STONE, WOOD, LEAVES, SAND, WATER, PLANKS, BRICKS, GLASS, DOOR, LANTERN, WARD_LANTERN, CONCRETE, REINFORCED_PANEL, STORAGE_CABINET, SECURITY_DOOR, SLAB, RED_FLOWER, SAPLING, SCRAP, BIOFUEL, REPAIR_TOOL, isFlower, buildBlock } from './world.js';
-
-const MATERIALS = {
-  [SAPLING]: { tone: 260, cutoff: 1300, noise: .8, ring: .1, decay: .6 },
-  [SCRAP]: { tone: 220, cutoff: 2000, noise: .2, ring: .7, decay: .6 },
-  [BIOFUEL]: { tone: 200, cutoff: 1600, noise: .2, ring: .4, decay: .5 },
-  [REPAIR_TOOL]: { tone: 270, cutoff: 2400, noise: .2, ring: .7, decay: .6 },
-  [CONCRETE]: { tone: 95, cutoff: 700, noise: .8, ring: .1, decay: .7 },
-  [REINFORCED_PANEL]: { tone: 170, cutoff: 1800, noise: .3, ring: .7, decay: .8 },
-  [STORAGE_CABINET]: { tone: 210, cutoff: 2100, noise: .25, ring: .7, decay: .75 },
-  [SECURITY_DOOR]: { tone: 150, cutoff: 1500, noise: .25, ring: .7, decay: .9 },
-  [GRASS]: { tone: 115, cutoff: 1800, noise: 0.8, ring: 0.28, decay: 1 },
-  [DIRT]: { tone: 85, cutoff: 1100, noise: 0.7, ring: 0.4, decay: 0.9 },
-  [STONE]: { tone: 510, cutoff: 4800, noise: 0.4, ring: 0.55, decay: 0.65 },
-  [WOOD]: { tone: 185, cutoff: 1400, noise: 0.3, ring: 0.7, decay: 0.85 },
-  [LEAVES]: { tone: 290, cutoff: 3600, noise: 0.95, ring: 0.08, decay: 1.2 },
-  [SAND]: { tone: 72, cutoff: 2000, noise: 0.85, ring: 0.2, decay: 0.95 },
-  [WATER]: { tone: 155, cutoff: 2800, noise: 0.85, ring: 0.22, decay: 1.2 },
-  [PLANKS]: { tone: 260, cutoff: 1800, noise: 0.25, ring: 0.65, decay: 0.7 },
-  [BRICKS]: { tone: 360, cutoff: 3500, noise: 0.45, ring: 0.45, decay: 0.75 },
-  [GLASS]: { tone: 1300, cutoff: 6200, noise: 0.25, ring: 0.45, decay: 0.8 },
-  [DOOR]: { tone: 210, cutoff: 1300, noise: 0.3, ring: 0.6, decay: 0.9 },
-  [LANTERN]: { tone: 620, cutoff: 3100, noise: 0.15, ring: 0.6, decay: 0.65 },
-  [WARD_LANTERN]: { tone: 740, cutoff: 3600, noise: 0.05, ring: 0.8, decay: 1 },
-  [SLAB]: { tone: 285, cutoff: 1950, noise: 0.25, ring: 0.65, decay: 0.65 },
-  [RED_FLOWER]: { tone: 380, cutoff: 2500, noise: 0.65, ring: 0.12, decay: 0.6 },
-};
-const ACTIONS = {
-  step: { duration: 0.14, volume: 0.38, pitch: 0.8, seed: 1 },
-  place: { duration: 0.16, volume: 0.6, pitch: 0.95, seed: 2 },
-  break: { duration: 0.25, volume: 0.65, pitch: 1.15, seed: 3 },
-  open: { duration: 0.2, volume: 0.45, pitch: 0.85, seed: 4 },
-  close: { duration: 0.16, volume: 0.5, pitch: 1.05, seed: 5 },
-  splash: { duration: 0.48, volume: 0.8, pitch: 0.75, seed: 6 },
-  swim: { duration: 0.22, volume: 0.1, pitch: 0.6, seed: 7 },
-  ward_on: { duration: .65, volume: .24, pitch: 1.1, seed: 8 },
-  ward_off: { duration: .5, volume: .22, pitch: .65, seed: 9 },
-};
+import { WATER, isSupport, blockBounds } from './world.js';
+import { loadedBlock, soundTransmission } from './perception.js';
+import { canPlaySound, canPlayCue, synthesizeSound, synthesizeCue } from './foley.js';
+export { synthesizeSound, synthesizeCue } from './foley.js';
 
 export const SOUND_DISTANCE = 32;
-
-// Keep nearby interactions clear, then fade to silence in every direction.
+export const LISTENER_SOUND_DISTANCE = 48;
+export const MAX_SOUND_VOICES = 16;
+export const MAX_SOUND_BUFFERS = 72;
 export function soundGain(source, listener) {
   if (!source || !listener) return 0;
   const distance = Math.hypot(source.x - listener.x, source.y - listener.y, source.z - listener.z);
   if (!Number.isFinite(distance) || distance >= SOUND_DISTANCE) return 0;
   return Math.min(1, (SOUND_DISTANCE - distance) / (SOUND_DISTANCE - 2)) ** 2;
 }
-
-// Short, repeatable PCM effects: filtered crunch plus a material-specific impact.
-export function synthesizeSound(block, action, sampleRate, variant = 0) {
-  block = isFlower(block) ? RED_FLOWER : buildBlock(block);
-  const material = MATERIALS[block];
-  const effect = ACTIONS[action];
-  if (!material || !effect || !Number.isFinite(sampleRate) || sampleRate < 8000) throw new RangeError('Invalid sound parameters');
-  const duration = effect.duration * material.decay;
-  const samples = new Float32Array(Math.ceil(duration * sampleRate));
-  const frequency = material.tone * effect.pitch * (1 + (variant - 1) * 0.045);
-  const swimming = block === WATER && action === 'swim';
-  const filter = 1 - Math.exp(-2 * Math.PI * (swimming ? 850 : material.cutoff) / sampleRate);
-  let seed = block * 1009 + effect.seed * 7919 + variant * 127;
-  let filtered = 0;
-  for (let i = 0; i < samples.length; i++) {
-    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
-    const white = (seed >>> 0) / 2147483648 - 1;
-    filtered += filter * (white - filtered);
-    const time = i / sampleRate;
-    const attack = Math.min(1, time / (swimming ? 0.025 : 0.003));
-    const release = Math.max(0, Math.min(1, (duration - time) / 0.012));
-    const envelope = attack * release * Math.exp(-time / (duration * 0.25));
-    const phase = 2 * Math.PI * frequency * (time + 0.025 * (1 - Math.exp(-time / 0.025)));
-    const impact = Math.sin(phase) * 0.8 + Math.sin(phase * 2.1) * 0.2;
-    const crumble = action === 'break' ? 0.8 + 0.2 * Math.sin(time * 230) : 1;
-    // Water uses a wash of noise with descending bubbles instead of a hard impact.
-    const watery = block === WATER && (action === 'splash' || action === 'swim');
-    const bubbles = Math.sin(2 * Math.PI * (420 * time - 240 * time * time)) * (0.5 + 0.5 * Math.sin(time * 65));
-    samples[i] = (watery ? filtered * 0.9 + bubbles * (swimming ? 0.015 : 0.18) : filtered * material.noise * crumble + impact * material.ring) * envelope * effect.volume;
-  }
-  return samples;
+export function soundPan(source, listener) {
+  const dx = source.x - listener.x, dz = source.z - listener.z, length = Math.hypot(dx, dz);
+  if (!length) return 0;
+  const yaw = listener.yaw || 0;
+  return Math.max(-1, Math.min(1, (dx * Math.cos(yaw) - dz * Math.sin(yaw)) / length));
 }
-
 export class FootstepTracker {
   distance = 0;
 
@@ -141,62 +81,85 @@ export class GameSounds {
   buffers = new Map();
   active = new Set();
   nextVariant = 0;
+  listener = null;
+  world = null;
+  remoteSteps = new Map();
 
   async resume() {
     if (!this.enabled) return;
     try {
       if (!this.context) {
-        this.context = new AudioContext();
-        this.master = this.context.createGain();
-        this.master.gain.value = 0.45;
-        this.master.connect(this.context.destination);
+        this.context = new AudioContext(); this.master = this.context.createGain(); this.master.gain.value = .34;
+        const compressor = this.context.createDynamicsCompressor();
+        compressor.threshold.value = -16; compressor.knee.value = 12; compressor.ratio.value = 5; compressor.attack.value = .006; compressor.release.value = .2;
+        this.master.connect(compressor); compressor.connect(this.context.destination);
       }
       if (this.context.state !== 'running') await this.context.resume();
-    } catch {
-      // Sound is optional if the browser cannot provide an audio device.
-    }
+    } catch { /* Optional audio never prevents playing. */ }
   }
-
   setEnabled(enabled) {
     this.enabled = enabled;
-    if (this.master) this.master.gain.value = enabled ? 0.45 : 0;
-    if (enabled) void this.resume();
-    else this.stop();
+    if (this.master) this.master.gain.value = enabled ? .34 : 0;
+    if (enabled) void this.resume(); else this.stop();
   }
-
-  playAt(block, action, source, listener) {
-    this.play(block, action, soundGain(source, listener));
+  setListener(listener, world) { this.listener = listener; this.world = world; }
+  position(source, listener = this.listener, range = SOUND_DISTANCE) {
+    listener = listener ? { ...listener, yaw: listener.yaw ?? this.listener?.yaw ?? 0 } : null;
+    const distance = source && listener ? Math.hypot(source.x - listener.x, source.y - listener.y, source.z - listener.z) : Infinity;
+    const gain = range === SOUND_DISTANCE ? soundGain(source, listener) : Math.max(0, Math.min(1, (range - distance) / (range - 2))) ** 1.4;
+    if (!gain) return { gain: 0, pan: 0, cutoff: 14000 };
+    const transmission = this.world ? soundTransmission(this.world, source, listener) : { gain: 1, cutoff: 14000 };
+    return { gain: gain * transmission.gain, pan: soundPan(source, listener), cutoff: transmission.cutoff };
   }
-
-  play(block, action, volume = 1) {
-    block = isFlower(block) ? RED_FLOWER : buildBlock(block);
-    if (!this.enabled || !this.master || this.context?.state !== 'running' || !MATERIALS[block] || !ACTIONS[action] || !Number.isFinite(volume) || volume <= 0) return;
-    const variant = this.nextVariant++ % 3;
-    const key = `${block}:${action}:${variant}`;
+  trackPlayers(players, selfId) {
+    const ids = new Set();
+    for (const p of players.slice(0, 8)) {
+      if (p.id === selfId) continue;
+      ids.add(p.id); const previous = this.remoteSteps.get(p.id), moved = previous ? Math.hypot(p.x - previous.x, p.z - previous.z) : 0;
+      const record = { x: p.x, y: p.y, z: p.z, distance: previous?.distance || 0 };
+      if (!previous || !p.active || moved > 3 || Math.abs(p.y - previous.y) > 1.25 || !this.world) record.distance = 0;
+      else {
+        const x = Math.floor(p.x), z = Math.floor(p.z), y = Math.floor(p.y - .05), floor = loadedBlock(this.world, x, y, z);
+        const wet = loadedBlock(this.world, x, Math.floor(p.y + .1), z) === WATER;
+        if (wet || floor !== undefined && isSupport(floor) && Math.abs(blockBounds(floor, x, y, z).maxY - p.y) < .22) {
+          record.distance += moved;
+          if (record.distance >= 1.7) { record.distance %= 1.7; const position = this.position({ x: p.x, y: p.y + .1, z: p.z }); this.play(wet ? WATER : floor, wet ? 'swim' : 'step', position.gain * .65, position); }
+        } else record.distance = 0;
+      }
+      this.remoteSteps.set(p.id, record);
+    }
+    for (const id of this.remoteSteps.keys()) if (!ids.has(id)) this.remoteSteps.delete(id);
+  }
+  playAt(block, action, source, listener) { const position = this.position(source, listener); this.play(block, action, position.gain, position); }
+  play(block, action, volume = 1, position = {}) {
+    if (!canPlaySound(block, action)) return;
+    const variant = this.nextVariant++ % 4;
+    this.emit(`${block}:${action}:${variant}`, () => synthesizeSound(block, action, this.context.sampleRate, variant), volume, position);
+  }
+  cuePosition(source, listener) { return this.position(source, listener, LISTENER_SOUND_DISTANCE); }
+  playCueAt(kind, source, listener) {
+    if (!canPlayCue(kind)) return 0;
+    const position = this.cuePosition(source, listener), variant = this.nextVariant++ % 4;
+    this.emit(`listener:${kind}:${variant}`, () => synthesizeCue(kind, this.context.sampleRate, variant), position.gain, position, true);
+    return position.gain;
+  }
+  emit(key, samples, volume, { pan = 0, cutoff = 14000 } = {}, priority = false) {
+    if (!this.enabled || !this.master || this.context?.state !== 'running' || !Number.isFinite(volume) || volume <= 0) return;
+    if (this.active.size >= MAX_SOUND_VOICES) { if (!priority) return; const oldest = this.active.values().next().value; this.active.delete(oldest); oldest.stop(); }
     let buffer = this.buffers.get(key);
     if (!buffer) {
-      const samples = synthesizeSound(block, action, this.context.sampleRate, variant);
-      buffer = this.context.createBuffer(1, samples.length, this.context.sampleRate);
-      buffer.copyToChannel(samples, 0);
-      this.buffers.set(key, buffer);
-    }
-    const source = this.context.createBufferSource();
-    source.buffer = buffer;
-    const gain = this.context.createGain();
-    gain.gain.value = Math.min(1, volume);
-    source.connect(gain);
-    gain.connect(this.master);
-    source.onended = () => {
-      source.disconnect();
-      gain.disconnect();
-      this.active.delete(source);
-    };
-    this.active.add(source);
-    source.start();
+      const pcm = samples(); buffer = this.context.createBuffer(1, pcm.length, this.context.sampleRate); buffer.copyToChannel(pcm, 0);
+      if (this.buffers.size >= MAX_SOUND_BUFFERS) this.buffers.delete(this.buffers.keys().next().value);
+    } else this.buffers.delete(key);
+    this.buffers.set(key, buffer);
+    const source = this.context.createBufferSource(), gain = this.context.createGain(), nodes = [gain];
+    source.buffer = buffer; gain.gain.value = Math.min(1, volume); source.connect(gain);
+    let last = gain;
+    if (this.context.createStereoPanner) { const node = this.context.createStereoPanner(); node.pan.value = pan; last.connect(node); last = node; nodes.push(node); }
+    if (cutoff < 14000 && this.context.createBiquadFilter) { const node = this.context.createBiquadFilter(); node.type = 'lowpass'; node.frequency.value = cutoff; last.connect(node); last = node; nodes.push(node); }
+    last.connect(this.master);
+    source.onended = () => { source.disconnect(); for (const node of nodes) node.disconnect(); this.active.delete(source); };
+    this.active.add(source); source.start();
   }
-
-  stop() {
-    for (const source of this.active) source.stop();
-    this.active.clear();
-  }
+  stop() { for (const source of [...this.active]) source.stop(); this.active.clear(); }
 }

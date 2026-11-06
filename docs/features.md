@@ -1,6 +1,6 @@
 # Current features
 
-Blockfield has one **Horror** mode: an ongoing cooperative world with finite gathering, renewable supplies, crafting, construction, repairs, and fuelled ward protection. Creatures and player health are not implemented yet.
+Blockfield has one **Horror** mode: an ongoing cooperative world with finite gathering, renewable supplies, crafting, construction, repairs, and fuelled ward protection. The first Listener can investigate, stalk, and retreat. Player injury, rescue, and creature-driven structural damage are not implemented yet.
 
 ## Worlds and settlement
 
@@ -64,7 +64,7 @@ Cabinet contents save with player supplies in shared and private worlds, includi
 | Reinforced panels | 4 |
 | Security doors | 5 |
 
-Strike repeatedly with Break/left-click, at least 0.3 simulation seconds apart. Remaining strength is shared and saved; it does not reset when players disconnect or the server restarts. Opening a security door preserves its strength. The final strike returns one block (one item for a complete door), provided your inventory has room. A door still depends on its floor support. Reinforced pieces seal shelter using the same cached enclosure checks as other solid blocks; closed security doors isolate rooms. Creature damage is future work.
+Strike repeatedly with Break/left-click, at least 0.3 simulation seconds apart. Remaining strength is shared and saved; it does not reset when players disconnect or the server restarts. Opening a security door preserves its strength. The final strike returns one block (one item for a complete door), provided your inventory has room. A door still depends on its floor support. Reinforced pieces seal shelter using the same cached enclosure checks as other solid blocks; closed security doors isolate rooms. Creature-driven structural damage is future work.
 
 ### Visible structural damage
 
@@ -94,9 +94,27 @@ Materials use procedural 32×32 textures, including fine concrete pores, panel s
 
 A powered, charged ward emitter automatically protects its enclosed room. Complete the floor, walls, roof, and closed doors; glass seals windows. Leaves, water, open doors, flowers, saplings, lanterns, and either slab half do not seal openings. Utility lights provide light only. Wards need full-height support and biomass fuel. Running out of charge or switching off revokes protection immediately, including for cached rooms; refuelling restores it when enclosure is verified.
 
-The HUD shows Exposed, Shelter enclosed (needs a ward or power), Protected, or Checking shelter (verification or terrain loading). A complete green mark around a ward means active; a broken amber mark means inactive. Aim at it or use E/right-click to inspect and manage it. A chime marks gaining/losing protection, with equivalent text feedback. Edits invalidate affected protection immediately. The HUD shows Checking during verification, then reports the new result; repairs restore protection once confirmed.
+The HUD shows Exposed, Shelter enclosed (needs a ward or power), Protected, or Checking shelter (verification or terrain loading). A complete green mark around a ward means active; a broken amber mark means inactive. Aim at it or use E/right-click to inspect and manage it. A quiet mechanical cue marks gaining/losing protection, with equivalent text feedback. Edits invalidate affected protection immediately. The HUD shows Checking during verification, then reports the new result; repairs restore protection once confirmed.
 
 Player-built rooms work like the starter cabin, including large open houses. Open interior doorways join protection zones; closed interior doors isolate them, so each separate zone needs a ward. A closed door can preserve protection on one side of an exterior breach. Large zones are checked over multiple updates, with one shared work budget for everyone and bounded caches. Exhausting a work allowance never declares a room exposed: it stays Checking until verified. If the working cache is full, close doors to separate smaller zones. The host computes multiplayer state, while private worlds use the same rules. Checks never load extra terrain, and unloaded terrain never grants protection. Unrelated edits keep cached results; only affected terrain sections are rebuilt. Wards and repairs persist; active/inactive results are recalculated after loading. Existing worlds and cabins are not overwritten, so older cabins may require a crafted ward.
+
+## The Listener
+
+One Listener can be drawn by loud activity at night (the Night portion of the shared clock), after a 90-second starting grace period. Breaking, building, repairing, gathering salvage, and sprinting produce authoritative noise. Walking is much quieter. Failed actions, idle motion, inventory selection, and opening menus do not produce gameplay noise. Switching off audio changes playback only; the Listener's hearing is simulated independently.
+
+It appears on checked, loaded ground at least 15 blocks from every player, investigates recent noise, then stalks visible exposed players while keeping approximately five blocks of distance. Walls and closed doors obstruct perception and movement. Foliage blocks sight; glass permits sight while muffling sound. It approaches remembered positions when sight is lost and gives up after losing interest. Powered ward protection or unresolved shelter verification keeps it cautious; if enclosed with a powered ward, it retreats. Dawn or a 75-second encounter limit also triggers retreat, followed by a 45-second cooldown. A trapped retreating creature fades out over its final two seconds. It currently causes no player injury or building damage.
+
+Behavior is shared by all connected players and persists across restarts, without offline catchup. Existing saves receive a dormant Listener. Navigation runs at most five times per second for one creature, with up to 96 expanded nodes and 4,096 navigation block reads per update and a 2 ms route-search target. Perception traces visit at most 96 cells; the noise queue holds at most 32 events. Checks never generate terrain. Footstep noise is derived from actual observed travel, including sprint speed and ground/water contact, with teleports and idle motion suppressed.
+
+The model is a lit, faceless raincoat silhouette. Cloth drag, heavy steps, uneven breathing, and receding brush provide restrained positional cues. Directional captions provide equivalent feedback when muted; captions reflect audible cues rather than revealing an exact position. Rejoining or returning from a menu does not replay a burst of old cues. Menus and inventory keep the world and encounters running.
+
+## Sound design
+
+All material effects use layered noise-based body impacts, friction, grit, and irregular transients. Concrete has a low fracture and debris layer, steel has a short impact and rattle, doors have latch/friction sounds, water has a soft wash, and ward transitions use quiet relay/air textures. Four stable variants reduce repetition. These effects are procedural foley, with no musical oscillators or note-based status sounds.
+
+Spatial audio pans with camera yaw and fades with distance. Material interactions stop at 32 blocks, while restrained Listener cues have a 48-block fade. Exact voxel traces muffle sound through full walls, thin door panels, and slab geometry without loading chunks. Other players' grounded footsteps are audible nearby. Playback is capped at 16 concurrent voices and a 72-buffer cache, with compression to restrain combined peaks. Mute stops playback and preserves captions.
+
+Generate isolated audition clips with `node scripts/audio-preview.js`; the timestamp guide is in `release/audio/README.md` alongside `materials.wav` and `listener.wav`.
 
 ## Controls
 

@@ -523,3 +523,5 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
 .structure-strength[data-damaged='true'] meter::-webkit-meter-optimum-value { background: #d8b474; }
 .structure-strength meter::-moz-meter-bar { background: #85c9b6; }
 .touch-mode .structure-strength { bottom: 210px; }
+
+.listener-cue { position: fixed; z-index: 2; left: 50%; top: calc(115px + env(safe-area-inset-top)); transform: translateX(-50%); max-width: calc(100vw - 32px); padding: 8px 13px; border: 1px solid #8e9b9e66; border-radius: 5px; background: #0d1b24df; color: #c9d6da; font-size: 13px; text-align: center; pointer-events: none; }

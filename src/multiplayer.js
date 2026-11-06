@@ -3,7 +3,7 @@ import { CHUNK_SIZE } from './generation.js';
 import { HEIGHT } from './world.js';
 import { newWorldId, validPlayerToken } from './saves.js';
 
-const PROTOCOL = 11;
+const PROTOCOL = 12;
 export class MultiplayerClient {
   ready = false;
   selfId = null;
@@ -91,6 +91,7 @@ export class MultiplayerClient {
       this.callbacks.drops?.(message.drops || []);
       this.callbacks.players?.(message.players);
       this.callbacks.shelter?.(message.shelter);
+      this.callbacks.listener?.(message.listener);
       return;
     }
     if (!this.ready) return;
@@ -107,6 +108,7 @@ export class MultiplayerClient {
       this.syncClock(message.clock);
       this.callbacks.players?.(message.players);
       this.callbacks.shelter?.(message.shelter);
+      this.callbacks.listener?.(message.listener);
     } else if (message.type === 'clock') this.syncClock(message.clock);
     else if (message.type === 'edit') {
       const changes = message.updates.filter(update => this.world.chunks.has(update.key)).flatMap(update => update.changes);

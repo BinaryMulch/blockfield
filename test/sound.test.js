@@ -60,7 +60,7 @@ test('all material sounds are distinct, bounded, repeatable, and fade out', () =
     for (const material of [GRASS, DIRT, STONE, WOOD, LEAVES, SAND, WATER, PLANKS, BRICKS, GLASS, DOOR, LANTERN, SLAB, RED_FLOWER]) {
       const sound = synthesizeSound(material, action, 44100);
       assert.deepEqual(sound, synthesizeSound(material, action, 44100));
-      assert.ok(sound.length > 2000 && sound.length < 15000);
+      assert.ok(sound.length > 2000 && sound.length < 44100);
       assert.equal(Math.abs(sound[0]), 0);
       let energy = 0;
       let tailEnergy = 0;

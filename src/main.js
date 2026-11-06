@@ -22,6 +22,7 @@ import { StorageView } from './storage-ui.js';
 import { UpkeepView, upkeepFailure } from './upkeep-ui.js';
 import { strength } from './infrastructure.js';
 import { applyDamageMaterial } from './damage.js';
+import { ListenerRenderer } from './listener-renderer.js';
 import { MenuScreens } from './menu.js';
 import { HotbarScroll, disableUIFocus } from './input.js';
 import { DropRenderer } from './drop-renderer.js';
@@ -78,6 +79,7 @@ function start() {
   lanternLighting.applyMaterial(particles.mesh.material);
   otherPlayers.prepareMaterial = material => lanternLighting.applyMaterial(material);
   const sounds = new GameSounds();
+  const listenerRenderer = new ListenerRenderer(scene, material => lanternLighting.applyMaterial(material));
   const footsteps = new FootstepTracker();
   const waterSounds = new WaterSoundTracker();
   const hotbarScroll = new HotbarScroll();
@@ -157,6 +159,8 @@ function start() {
   const survivalStatus = document.querySelector('#survival-status');
   const shelterStatus = document.querySelector('#shelter-status');
   const wardHint = document.querySelector('#ward-hint');
+  const listenerCue = document.querySelector('#listener-cue');
+  let cueUntil = 0, lastStepCaption = 0;
   const strengthHint = document.querySelector('#structure-strength');
   const strengthLabel = document.querySelector('#strength-label');
   const strengthMeter = document.querySelector('#strength-meter');
@@ -726,6 +730,8 @@ function start() {
     const frameStarted = performance.now();
     const simulationElapsed = Math.max(0, (now - previous) / 1000);
     const elapsed = Math.min(simulationElapsed, 0.1);
+    sounds.setListener({ x: player.x, y: player.y + EYE_HEIGHT, z: player.z, yaw: camera.rotation.y }, world);
+    listenerCue.hidden = !playing || now >= cueUntil;
     upkeepView.update(elapsed);
     previous = now;
     if (playing && history.ready) {
@@ -745,7 +751,7 @@ function start() {
         else if (footsteps.update(before, player)) {
           const x = Math.floor(player.x), z = Math.floor(player.z);
           const block = world.get(x, Math.floor(player.y - 0.05), z);
-          sounds.play(block, 'step');
+          sounds.play(block, 'step', keys.has('ShiftLeft') || keys.has('ShiftRight') || touch.sprint ? .9 : .65);
         }
         jumpQueued = false;
         accumulator -= fixedStep;
@@ -780,7 +786,8 @@ function start() {
     coordinates.hidden = !history.mode;
     if (history.mode) coordinates.textContent = `X ${Math.floor(player.x)} · Y ${Math.floor(player.y)} · Z ${Math.floor(player.z)}`;
     avatarShadowElapsed += elapsed;
-    if (otherPlayers.update(elapsed) && avatarShadowElapsed >= 0.2) {
+    const listenerMoved = listenerRenderer.update(elapsed, world, player);
+    if ((otherPlayers.update(elapsed) || listenerMoved) && avatarShadowElapsed >= 0.2) {
       renderer.shadowMap.needsUpdate = true;
       avatarShadowElapsed = 0;
     }
@@ -845,7 +852,24 @@ function start() {
   history.callbacks = {
     storage(saved) { storageView.sync(saved); },
     constructionChunk({ key, damage }) { chunkRenderer.damage.setChunk(key, damage); },
-    construction(damage) { chunkRenderer.damage.set(damage); if (playing) sounds.playAt(damage.block, 'place', { x: damage.x + .5, y: damage.y + .5, z: damage.z + .5 }, camera.position); },
+    construction(damage) { chunkRenderer.damage.set(damage); if (playing) sounds.playAt(damage.block, damage.remaining === strength(damage.block) ? 'repair' : 'hit', { x: damage.x + .5, y: damage.y + .5, z: damage.z + .5 }, camera.position); },
+    listener(state) {
+      const cues = listenerRenderer.sync(state);
+      for (const event of cues) {
+        if (!playing) continue;
+        const ear = { x: player.x, y: player.y + EYE_HEIGHT, z: player.z, yaw: camera.rotation.y };
+        const position = sounds.cuePosition(event.source, ear);
+        if (position.gain < .025) continue;
+        sounds.playCueAt(event.kind, event.source, ear);
+        const now = performance.now();
+        if (event.kind === 'step' && (cues.some(cue => cue.kind !== 'step') || now - lastStepCaption < 4500)) continue;
+        if (event.kind === 'step') lastStepCaption = now;
+        const behind = (event.source.x - ear.x) * -Math.sin(ear.yaw) + (event.source.z - ear.z) * -Math.cos(ear.yaw) < 0;
+        const direction = position.pan < -.35 ? 'to the left' : position.pan > .35 ? 'to the right' : behind ? 'behind you' : 'nearby';
+        listenerCue.textContent = `${{ alert: 'Fabric dragging', breath: 'An uneven breath', retreat: 'Brush receding', step: 'A heavy footfall' }[event.kind]} ${direction}`;
+        cueUntil = now + 3500;
+      }
+    },
     upkeep(info) { upkeepView.sync(info); },
     shelter: receiveShelter,
     drops(items) { droppedItems.sync(items); },
@@ -861,7 +885,7 @@ function start() {
       if (history.mode === 'multiplayer') renderConnectedPlayers([], history.blocked ? 'Not connected.' : 'Connecting…');
     },
     welcome(message) {
-      chunkRenderer.damage.clear();
+      chunkRenderer.damage.clear(); listenerRenderer.sync(null); sounds.remoteSteps.clear(); cueUntil = 0;
       droppedItems.sync([]);
       Object.assign(player, message.self, { vy: 0, grounded: false, flying: false });
       camera.rotation.set(message.self.pitch, message.self.yaw, 0, 'YXZ');
@@ -889,6 +913,7 @@ function start() {
       playerCapacity = message.maxPlayers || 8;
     },
     players(players) {
+      sounds.trackPlayers(players, history.selfId);
       if (otherPlayers.sync(players, history.selfId)) renderer.shadowMap.needsUpdate = true;
       if (history.mode === 'multiplayer') renderConnectedPlayers(players);
       if (history.mode === 'single') setConnectionStatus('Single player · Private world');
@@ -910,6 +935,7 @@ function start() {
     },
     edit(message) { chunkRenderer.damage.edited(message.changes); if (message.method === 'growth') rebuildMeshes(message.changes); else finishEdit(message.changes[0], undefined, message.changes); },
     disconnected() {
+      listenerRenderer.sync(null); cueUntil = 0;
       shelter = null; confirmedProtection = null; wardRenderer.sync(); shelterStatus.textContent = 'Protection unavailable · Reconnecting'; shelterStatus.dataset.state = 'checking';
       renderConnectedPlayers([], 'Not connected.');
       closeInventory(false);
@@ -994,7 +1020,7 @@ function start() {
     closeInventory(false);
     pauseGame();
     diagnostics.reset();
-    history.disconnect(); chunkRenderer.reset(); chunkRenderer.damage.clear(); world.chunks.clear(); lanternLighting.sync(world);
+    history.disconnect(); listenerRenderer.sync(null); cueUntil = 0; chunkRenderer.reset(); chunkRenderer.damage.clear(); world.chunks.clear(); lanternLighting.sync(world);
     otherPlayers.sync([], null); clearInput();
     screens.setSession(false);
     play.hidden = true; leaveButton.hidden = true;

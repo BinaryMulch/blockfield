@@ -5,8 +5,9 @@ import { validDrops } from './drops.js';
 import { GAME_MODE, validHorrorState } from './horror.js';
 import { validInfrastructure } from './infrastructure.js';
 import { validUpkeep } from './upkeep.js';
+import { validListener } from './listener.js';
 
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 export const SAVE_FORMAT = 'blockfield-world';
 export const MAX_SAVE_BYTES = 128 * 1024 * 1024;
 export const validPlayerToken = token => typeof token === 'string' && /^[a-f0-9-]{32,80}$/i.test(token);
@@ -19,7 +20,7 @@ export function newWorldId() {
 }
 
 export function validateSave(save) {
-  if (!save || typeof save !== 'object' || save.format !== SAVE_FORMAT || ![1, 2, 3, 4, SAVE_VERSION].includes(save.version)) {
+  if (!save || typeof save !== 'object' || save.format !== SAVE_FORMAT || ![1, 2, 3, 4, 5, SAVE_VERSION].includes(save.version)) {
     throw new SaveError('This world uses an unsupported save format. Its data has not been changed.', 'SAVE_INCOMPATIBLE');
   }
   const metadata = save.world;
@@ -78,6 +79,8 @@ export function validateSave(save) {
   if (save.upkeep?.version !== undefined && save.upkeep.version !== 1) throw new SaveError('This upkeep state needs a newer game version.', 'SAVE_INCOMPATIBLE');
   if (!validUpkeep(save.upkeep, metadata.size, save.clock.elapsedSeconds ?? 0)) throw new SaveError('The saved resource upkeep is invalid.');
   if (save.upkeep && (save.upkeep.plants.some(p => editedBlock(p) !== SAPLING + p.stage) || save.upkeep.wards.some(p => editedBlock(p) !== WARD_LANTERN) || save.upkeep.salvage.some(p => editedBlock(p) !== SALVAGE_CRATE))) throw new SaveError('Saved upkeep does not match world blocks.');
+  if (save.listener?.version !== undefined && save.listener.version !== 1) throw new SaveError('This Listener needs a newer game version.', 'SAVE_INCOMPATIBLE');
+  if (!validListener(save.listener, metadata.size)) throw new SaveError('The saved Listener is invalid.');
   return save;
 }
 
@@ -103,7 +106,7 @@ export function validPose(pose, size = WORLD_SIZE) {
     && Math.abs(pose.pitch) <= Math.PI / 2 + 0.01 && typeof pose.flying === 'boolean';
 }
 
-export function captureSave({ world, id, name, createdAt, clock, player, inventory, gameMode = GAME_MODE, profiles, drops, containers, construction, upkeep, horror = { version: 1, cabin: null } }) {
+export function captureSave({ world, id, name, createdAt, clock, player, inventory, gameMode = GAME_MODE, profiles, drops, containers, construction, upkeep, listener, horror = { version: 1, cabin: null } }) {
   const save = { format: SAVE_FORMAT, version: SAVE_VERSION, id, name: name.trim().slice(0, 40) || 'My world', createdAt,
     updatedAt: Date.now(), world: world.metadata(), clock: { phase: clock.phase, held: gameMode === GAME_MODE ? false : clock.held,
       elapsedSeconds: clock.elapsedSeconds ?? 0, day: clock.day ?? 1 },
@@ -120,6 +123,7 @@ export function captureSave({ world, id, name, createdAt, clock, player, invento
   if (profiles) save.profiles = profiles.map(([token, inventory]) => [token, structuredClone(inventory)]);
   if (drops) save.drops = structuredClone(drops);
   if (containers) save.containers = structuredClone(containers);
+  if (listener) save.listener = structuredClone(listener);
   if (upkeep) save.upkeep = structuredClone(upkeep);
   if (construction) save.construction = structuredClone(construction);
   return validateSave(save);

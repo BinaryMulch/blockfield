@@ -11,6 +11,7 @@ import { GAME_MODE, RESTRICTED_COMMANDS, buildStarterCabin } from './horror.js';
 import { ShelterSystem } from './shelter.js';
 import { Infrastructure } from './infrastructure.js';
 import { UpkeepSystem } from './upkeep.js';
+import { ListenerSystem } from './listener.js';
 const motionStamp = (pose, clock) => [pose.x, pose.y, pose.z, pose.yaw % (Math.PI * 2), pose.pitch, clock.phase, clock.elapsedSeconds].join(':');
 
 export function serverURL(value, current = location.origin, port) {
@@ -64,6 +65,7 @@ export class LocalSession extends MultiplayerClient {
     this.infrastructure = new Infrastructure(this.world, saved?.containers, saved?.construction);
     this.upkeep = new UpkeepSystem(this.world, { saved: saved?.upkeep, clock: () => this.clock.elapsedSeconds, infrastructure: this.infrastructure, sites: this.horror.salvage });
     this.shelters = new ShelterSystem(this.world, { wardPower: p => this.upkeep.wardPower(p) });
+    this.listener = new ListenerSystem(this.world, { saved: saved?.listener, clock: () => this.clock, shelters: this.shelters });
     this.history = new EditHistory(this.world);
     this.history.upkeep = this.upkeep;
     this.history.infrastructure = this.infrastructure;
@@ -82,6 +84,7 @@ export class LocalSession extends MultiplayerClient {
     for (const chunk of this.world.chunks.values()) this.callbacks.constructionChunk?.({ key: chunk.key, damage: this.infrastructure.chunkDamage(chunk.cx, chunk.cz) });
     this.callbacks.clock?.(this.clock);
     this.callbacks.players?.([this.self]);
+    this.callbacks.listener?.(this.listener.publicState());
     this.callbacks.drops?.(this.drops.snapshot());
     this.publishShelter();
   }
@@ -91,7 +94,7 @@ export class LocalSession extends MultiplayerClient {
     if (this.resources && !this.starting) inventory = { ...this.resources.snapshot(), selected: inventory?.selected ?? this.resources.selected };
     return captureSave({ world: this.world, id: this.id, name: this.title, createdAt: this.createdAt, clock: this.clock,
       player: this.starting ? this.self : this.pose?.() || this.self, gameMode: this.gameMode,
-      inventory, horror: this.horror, upkeep: this.upkeep?.snapshot(), ...this.infrastructure?.snapshot(), drops: this.drops.snapshot() });
+      inventory, horror: this.horror, listener: this.listener?.snapshot(), upkeep: this.upkeep?.snapshot(), ...this.infrastructure?.snapshot(), drops: this.drops.snapshot() });
   }
 
   save() {
@@ -156,9 +159,16 @@ export class LocalSession extends MultiplayerClient {
       } else this.editing = false;
     }
     if (this.shelters?.advance(seconds)) this.publishShelter();
+    if (this.clock.running && this.listener?.advance(seconds, [{ id: this.selfId, pose }])) this.callbacks.listener?.(this.listener.publicState());
   }
 
   async request(method, args = {}) {
+    const result = await this.performRequest(method, args);
+    this.listener?.action(this.selfId, method, args, result, this.pose?.() || this.self);
+    return result;
+  }
+
+  async performRequest(method, args = {}) {
     if (!this.ready || this.closed) return { ok: false, reason: 'disconnected' };
     if (method === 'save') return { ok: await this.save() };
     if (this.saveError && method !== 'name') return { ok: false, reason: 'storage' };

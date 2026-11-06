@@ -2,7 +2,7 @@
 
 A browser-based cooperative survival horror game for family and friends. Gather resources, repair an abandoned modern outpost, and build a settlement that lasts across sessions. There is one game mode: **Horror**.
 
-The current build provides a persistent world, finite supplies, a modern starter outpost, shared storage, reinforced construction, a survival clock, 32×32 material textures, and authoritative shelter/ward protection. Renewable trees, capped salvage supplies, structural repairs, and biomass-powered wards support ongoing play. Creatures and player health are future work.
+The current build provides a persistent world, finite supplies, a modern starter outpost, shared storage, reinforced construction, a survival clock, 32×32 material textures, and authoritative shelter/ward protection. Renewable trees, capped salvage supplies, structural repairs, and biomass-powered wards support ongoing play. The first Listener investigates noise and stalks exposed players. Player injury, rescue, and creature-driven structural damage are future work.
 
 ## Play on your Mac
 
@@ -87,7 +87,7 @@ Repair a roof, floor, walls, and door to form an enclosed room, then place a **w
 
 Full blocks (including glass) and both halves of closed doors seal rooms. Leaves, water, flowers, lanterns, open doors, and either slab half do not seal openings. A player must fit inside the enclosed space. There is no fixed room-volume or width limit. Open interior doorways connect rooms into one protection zone; closed interior doors separate zones, each needing its own ward. A closed door can keep an exterior breach on one side from exposing a protected room on the other.
 
-The HUD distinguishes **Exposed**, **Shelter enclosed · Add a ward emitter**, **Protected · Ward active**, and **Checking shelter** while enclosure checks run or terrain loads. Ward sources have a complete green mark when active and a broken amber mark when inactive. Aim at a ward or interact with E/right-click to inspect it. A short chime signals entering or losing protection; sound can be muted. An edit immediately invalidates an affected zone’s old result. It shows Checking while being verified, then becomes Protected, Sheltered, or Exposed. Repairing the enclosure restores protection after verification.
+The HUD distinguishes **Exposed**, **Shelter enclosed · Add a ward emitter**, **Protected · Ward active**, and **Checking shelter** while enclosure checks run or terrain loads. Ward sources have a complete green mark when active and a broken amber mark when inactive. Aim at a ward or interact with E/right-click to inspect it. A quiet relay/air cue signals entering or losing protection; sound can be muted. An edit immediately invalidates an affected zone’s old result. It shows Checking while being verified, then becomes Protected, Sheltered, or Exposed. Repairing the enclosure restores protection after verification.
 
 The multiplayer host decides protection from blocks, not client brightness or supplied status flags. Private sessions use the same incremental enclosure checker. Unloaded chunks cannot count as walls, and checks never generate or load extra terrain. Large houses can take several updates to verify. Checks reuse unaffected terrain sections and cached zone results. If the bounded working cache is exhausted, the result remains Checking; closing interior doors reduces the working area. Streaming, relevant edits, and restart trigger verification as needed. Only actual ward blocks and construction are saved; derived protection is never trusted from a save. The state is ready for the future creature, which is not implemented yet.
 
@@ -122,6 +122,16 @@ Legacy Gather and Creative saves are read and migrated to Horror on opening. Ter
 
 Before restoring or copying server saves, stop the host. Preserve the complete data directory. Only one host may write to a directory at a time. Unknown future save formats are rejected without replacing them with older data.
 
+## The Listener and sound
+
+At night, after an initial 90-second grace period, loud work or sprinting can draw one Listener from at least 15 blocks away. It investigates sounds, stalks visible exposed players while keeping roughly five blocks of distance, and retreats at dawn, when an encounter times out, or when ward protection surrounds it. Quiet movement and closed barriers help avoid attention. This first pass does not damage players or buildings.
+
+Its state, position, and timers persist across saves and freeze when everyone disconnects. Shared and private worlds use the same rules. Movement uses existing loaded terrain, bounded navigation, and collision checks. A dark raincoat silhouette, spatial cloth/footfall/breath cues, and equivalent directional captions communicate its presence. Joining or resuming does not replay old cues. Menus keep the simulation running.
+
+Material sounds now use layered broadband impacts, friction, grit, and mechanical clicks. Footsteps, fractures, doors, repairs, water, and ward transitions have four variations without the former pitched sine-wave impacts. Other players' footsteps are spatial too. Walls, thin doors, and slabs muffle positional effects; stereo direction follows the camera. A compressor restrains overlapping effects, with at most 16 voices and 72 cached samples. Muting audio preserves visual captions and has no effect on the Listener's hearing.
+
+To audition the isolated effects, run `node scripts/audio-preview.js`. It writes `release/audio/materials.wav`, `listener.wav`, and a timestamp guide. These files are ignored by Git and are louder than their distance-attenuated in-game mix.
+
 ## Development
 
 ```sh
@@ -131,12 +141,15 @@ npm run dev
 npm run package:server
 ```
 
+- `src/listener.js` and `src/perception.js`: authoritative noise perception, bounded local navigation, investigate/stalk/retreat state, and exact loaded-terrain traces.
+- `src/listener-renderer.js`: lit creature silhouette and sequence-based cues, with no replay on joining.
+- `src/foley.js` and `src/sound.js`: layered noise-based material effects, spatial stereo, wall muffling, cue playback, and bounded voices/sample caching.
 - `src/horror.js`: single-mode rules, starter-cabin overlay, and versioned Horror world metadata.
 - `src/upkeep.js` and `src/upkeep-ui.js`: indexed plant timers, elapsed-time ward charge and salvage reserves, atomic fuel/repair/gathering commands, and inspection controls.
 - `src/clock.js`: elapsed simulation time, day count, phase, and saved clock snapshots shared by local and hosted sessions.
-- `server/room.js` and `server.js`: authoritative inventories/edits, connected-player clock rules, WebSocket protocol 11, persistence, and disconnect checkpoints.
+- `server/room.js` and `server.js`: authoritative inventories/edits, connected-player clock rules, WebSocket protocol 12, persistence, and disconnect checkpoints.
 - `src/session.js`: private simulation, browser save checkpoints, and session switching.
-- `src/saves.js`: save format 5 with strict validation and migration of earlier worlds; `server/disk-saves.js` handles atomic replacement, backups, and writer locking.
+- `src/saves.js`: save format 6 with strict validation and migration of earlier worlds; `server/disk-saves.js` handles atomic replacement, backups, and writer locking.
 - `src/infrastructure.js` and `src/storage-ui.js`: authoritative cabinet transfers, revisions, shared structural strength, and cabinet controls. Cabinet contents and damaged structures have separate bounded maps (4,096 records each), with no per-frame structural scans.
 - `src/damage.js`: shared 32×32 wear masks and shader blending, packed damage attributes, and per-block vertex-range updates. Chunk snapshots carry persisted damage; hits and repairs update the affected ranges without extra meshes, draw calls, or remeshing.
 - `src/textures.js`: deterministic 32×32 material tiles in a padded 256×512 atlas; the existing chunk meshes and draw groups are reused.
@@ -146,4 +159,4 @@ npm run package:server
 - `src/shelter.js` and `src/ward-renderer.js`: incremental section connectivity, cached protection zones, and client-only status markers. Labels are built for 16 × 16 × 4 terrain sections, then connected by a graph search. Each simulation shares one allowance across all players: at most 4,096 work steps per update, with a 2 ms elapsed-time target checked every 16 steps, at most once per 100 ms. Queries enqueue work and never run a per-player flood fill. Caches are bounded to 512 sections and 64 zones; queues and stale component references are also bounded. Per-section revisions preserve unrelated cached results, and a direct opening to the sky proves outdoor exposure without searching the whole outdoors. Ward positions are indexed when blocks change or chunks arrive, rather than rediscovered by scanning terrain on every HUD update.
 - `src/world.js`, `src/terrain.js`, `src/lantern-field.js`: block geometry, collision, chunk meshing, and bounded voxel lighting.
 
-The next milestone is the first creature and recoverable encounters. Fuel, growth, and salvage already use saved simulation seconds. Future encounter timers should follow the same offline-pause rule.
+The next milestone is structural pressure and recoverable encounters: mild player consequences, teammate rescue, and a solo recovery path. The Listener already follows saved simulation time, including offline pause.

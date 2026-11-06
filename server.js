@@ -86,7 +86,7 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
   };
   const broadcast = message => { for (const [socket, peer] of peers) if (peer.id) send(socket, message); };
   const broadcastPlayerState = () => {
-    const state = { type: 'players', players: room.playerList(), clock: room.clockState() };
+    const state = { type: 'players', players: room.playerList(), clock: room.clockState(), listener: room.listener.publicState() };
     for (const [socket, peer] of peers) if (peer.id) send(socket, { ...state, shelter: room.shelterSnapshot(peer.id) });
   };
   const failedSave = error => {

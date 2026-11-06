@@ -11,8 +11,9 @@ import { ItemDrops } from '../src/drops.js';
 import { ShelterSystem } from '../src/shelter.js';
 import { Infrastructure } from '../src/infrastructure.js';
 import { UpkeepSystem } from '../src/upkeep.js';
+import { ListenerSystem } from '../src/listener.js';
 
-export const PROTOCOL = 11;
+export const PROTOCOL = 12;
 export const MAX_PLAYERS = 8;
 const COLORS = ['#db8b58', '#669bc1', '#b17bb2', '#79a56c', '#d2b358', '#d77587', '#69aeaa', '#8f8ac5'];
 const indexOf = (x, y, z) => `${x},${y},${z}`;
@@ -69,6 +70,7 @@ export class GameRoom {
     this.infrastructure = new Infrastructure(world);
     this.upkeep = new UpkeepSystem(world, { clock: () => this.clock.elapsedSeconds, infrastructure: this.infrastructure, sites: this.horror.salvage });
     this.shelters = new ShelterSystem(world, { wardPower: p => this.upkeep.wardPower(p) });
+    this.listener = new ListenerSystem(world, { clock: () => this.clock, shelters: this.shelters });
     this.maxPlayers = maxPlayers;
     this.versions = new Map();
     this.chunkRevisions = new Map();
@@ -79,7 +81,7 @@ export class GameRoom {
   }
 
   toSave() { return captureSave({ world: this.world, id: this.worldId, name: this.name, createdAt: this.createdAt, clock: this.clock, gameMode: this.gameMode,
-    horror: this.horror, upkeep: this.upkeep.snapshot(), ...this.infrastructure.snapshot(), profiles: [...this.profiles].map(([token, inventory]) => [token, inventory.snapshot()]), drops: this.drops.snapshot() }); }
+    horror: this.horror, listener: this.listener.snapshot(), upkeep: this.upkeep.snapshot(), ...this.infrastructure.snapshot(), profiles: [...this.profiles].map(([token, inventory]) => [token, inventory.snapshot()]), drops: this.drops.snapshot() }); }
 
   static fromSave(save) {
     save = migrateSave(save);
@@ -93,6 +95,7 @@ export class GameRoom {
     room.worldId = save.id; room.createdAt = save.createdAt;
     room.clock = new DayClock(save.clock);
     room.upkeep = new UpkeepSystem(world, { saved: save.upkeep, clock: () => room.clock.elapsedSeconds, infrastructure: room.infrastructure, sites: room.horror.salvage });
+    room.listener = new ListenerSystem(world, { saved: save.listener, clock: () => room.clock, shelters: room.shelters });
     return room;
   }
 
@@ -138,7 +141,7 @@ export class GameRoom {
 
   snapshot(player) {
     return { type: 'welcome', protocol: PROTOCOL, sessionId: this.sessionId, worldId: this.worldId, self: this.publicPlayer(player), players: this.playerList(),
-      world: this.metadata(), worldName: this.name, revision: this.revision, clock: this.clockState(), shelter: this.shelterSnapshot(player.id), maxPlayers: this.maxPlayers, gameMode: this.gameMode, horror: this.horror, drops: this.drops.snapshot(),
+      world: this.metadata(), worldName: this.name, revision: this.revision, clock: this.clockState(), shelter: this.shelterSnapshot(player.id), maxPlayers: this.maxPlayers, gameMode: this.gameMode, horror: this.horror, listener: this.listener.publicState(), drops: this.drops.snapshot(),
       ...(player.inventory ? { inventory: player.inventory.snapshot(), playerToken: player.token } : {}) };
   }
 
@@ -152,10 +155,10 @@ export class GameRoom {
     return { type: 'chunk', cx, cz, revision: this.chunkRevisions.get(key) || 0, blocks: Buffer.from(blocks).toString('base64'), construction: this.infrastructure.chunkDamage(cx, cz) };
   }
 
-  leave(id) { this.infrastructure.lastHit.delete(id); return this.players.delete(id); }
+  leave(id) { this.infrastructure.lastHit.delete(id); this.listener.forget(id); return this.players.delete(id); }
 
   advance(seconds) {
-    if (this.clockState().running) { this.clock.advance(seconds); this.shelters.advance(seconds); }
+    if (this.clockState().running) { this.clock.advance(seconds); this.shelters.advance(seconds); this.listener.advance(seconds, [...this.players.values()].map(p => ({ id: p.id, pose: p.pose }))); }
   }
 
   processUpkeep() {
@@ -183,6 +186,12 @@ export class GameRoom {
   }
 
   command(id, message) {
+    const result = this.performCommand(id, message), player = this.players.get(id);
+    if (player && message) this.listener.action(id, message.method, message, result, player.pose);
+    return result;
+  }
+
+  performCommand(id, message) {
     if (!message || typeof message !== 'object') return { ok: false, reason: 'invalid' };
     const player = this.players.get(id);
     if (!player) return { ok: false, reason: 'disconnected' };
