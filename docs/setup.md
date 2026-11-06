@@ -118,6 +118,7 @@ Updating the application preserves the configured `DATA_DIR`, saved worlds, and 
 - Before backing up or restoring the data folder, stop the server. Copy the folder somewhere separate, then start the server again.
 - Single-player saves stay in each browser, not on the VM. Use **Export backup / Import world backup** to move them between browsers or site addresses.
 - Shared Gather inventories are tied to an anonymous identity in the browser's website data. Display names do not identify inventories; clearing website data can lose access to those items.
+- Dropped Gather items are saved with the world, including private-world exports and shared-server backups. Keep the same save directory when updating to retain them along with inventories.
 - Check `http://VM-IP:6200/healthz` for server/save health; it should report `"ok": true`.
 
 Settings are environment variables. For manual starts, prefix `npm start` with them; for systemd, add `Environment=...` lines and reload/restart the service.

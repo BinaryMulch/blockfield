@@ -165,8 +165,9 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
       peer.lastRequest = message.requestId;
       enqueue(async () => {
       const result = room.command(peer.id, message);
-      if (result.ok && (result.changes || result.type === 'clock' || result.type === 'supplies')) await checkpoint();
+      if (result.ok && (result.changes || result.type === 'clock' || result.type === 'supplies' || result.type === 'drops')) await checkpoint();
       if (result.ok && room.players.get(peer.id)?.inventory) send(socket, { type: 'supplies', inventory: room.players.get(peer.id).inventory.snapshot() });
+      if (result.ok && result.type === 'drops') broadcast({ type: 'drops', drops: room.drops.snapshot() });
       if (result.ok && result.changes) {
         const groups = new Map();
         for (const c of result.changes) {

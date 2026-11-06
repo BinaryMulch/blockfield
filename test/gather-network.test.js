@@ -19,7 +19,7 @@ async function client(port, token) {
     function check() { const index = messages.findIndex(predicate); if (index >= 0) { const [value] = messages.splice(index, 1); clearTimeout(timer); waiting.delete(check); resolve(value); } }
     waiting.add(check); check();
   });
-  return { socket, next };
+  return { socket, next, messages };
 }
 
 test('gather network changes checkpoint supplies and blocks together and restore separate profiles after restart', async () => {
@@ -65,5 +65,69 @@ test('gather network changes checkpoint supplies and blocks together and restore
     assert.equal(game.room.profiles.get(token).count(block), 0);
   } finally {
     sockets.forEach(socket => socket.terminate()); await game?.close(); await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('network drops broadcast after checkpoint, survive restart, and transfer to only one nearby player', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'blockfield-drop-network-')), sockets = [];
+  let game;
+  try {
+    game = await createGameServer({ host: '127.0.0.1', port: 0, saveDirectory: directory });
+    const tokenA = randomUUID(), tokenB = randomUUID();
+    const a = await client(game.server.address().port, tokenA); sockets.push(a.socket);
+    const welcome = await a.next(m => m.type === 'welcome');
+    const b = await client(game.server.address().port, tokenB); sockets.push(b.socket);
+    await b.next(m => m.type === 'welcome');
+    const x = Math.floor(welcome.self.x), y = Math.floor(welcome.self.y) - 1, z = Math.floor(welcome.self.z), block = game.room.world.get(x, y, z);
+    a.socket.send(JSON.stringify({ type: 'command', requestId: 1, method: 'edit', x, y, z, block: AIR, expected: game.room.expected(x, y, z) }));
+    const supplies = await a.next(m => m.type === 'supplies');
+    await a.next(m => m.type === 'result' && m.requestId === 1);
+    a.socket.send(JSON.stringify({ type: 'command', requestId: 2, method: 'drop', source: 0, amount: 1, expectedSource: supplies.inventory.stacks[0], block: PLANKS, x: 0, y: 0, z: 0 }));
+    const dropped = await b.next(m => m.type === 'drops'); assert.equal(dropped.drops.length, 1); assert.equal(dropped.drops[0].block, block);
+    assert.equal((await a.next(m => m.type === 'result' && m.requestId === 2)).ok, true);
+    const saved = JSON.parse(await readFile(join(directory, 'world.json'), 'utf8'));
+    assert.equal(saved.drops[0].count, 1); assert.equal(count(saved.profiles.find(([token]) => token === tokenA)[1], block), 0);
+    assert.ok(saved.drops[0].x > 200, 'drop position comes from the authoritative pose, ignoring client coordinates');
+    await game.close(); game = await createGameServer({ host: '127.0.0.1', port: 0, saveDirectory: directory });
+    const againA = await client(game.server.address().port, tokenA), againB = await client(game.server.address().port, tokenB); sockets.push(againA.socket, againB.socket);
+    const aWelcome = await againA.next(m => m.type === 'welcome'), bWelcome = await againB.next(m => m.type === 'welcome');
+    assert.equal(count(aWelcome.inventory, block), 0); assert.equal(bWelcome.drops[0].id, dropped.drops[0].id);
+    const item = bWelcome.drops[0], pose = { x: item.x, y: item.y - 0.17, z: item.z, yaw: 0, pitch: 0, active: true };
+    await new Promise(resolve => setTimeout(resolve, Math.max(0, item.readyAt - Date.now() + 10)));
+    for (const player of [againB, againA]) {
+      player.socket.send(JSON.stringify({ type: 'pose', pose }));
+      player.socket.send(JSON.stringify({ type: 'command', requestId: 1, method: 'pickup', amount: 64 }));
+    }
+    const resultB = await againB.next(m => m.type === 'result' && m.requestId === 1), resultA = await againA.next(m => m.type === 'result' && m.requestId === 1);
+    assert.equal(Number(resultB.ok) + Number(resultA.ok), 1);
+    assert.deepEqual((await againA.next(m => m.type === 'drops')).drops, []);
+    const picked = JSON.parse(await readFile(join(directory, 'world.json'), 'utf8'));
+    assert.equal(picked.drops.length, 0);
+    assert.equal(picked.profiles.reduce((sum, [, inventory]) => sum + count(inventory, block), 0), 1);
+  } finally {
+    sockets.forEach(socket => socket.terminate()); await game?.close(); await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('a failed drop checkpoint publishes neither inventory nor entities and preserves the saved supplies', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'blockfield-drop-failure-'));
+  let game, a;
+  t.mock.method(console, 'error', () => {});
+  try {
+    game = await createGameServer({ host: '127.0.0.1', port: 0, saveDirectory: directory });
+    const token = randomUUID(); a = await client(game.server.address().port, token);
+    const welcome = await a.next(m => m.type === 'welcome');
+    const x = Math.floor(welcome.self.x), y = Math.floor(welcome.self.y) - 1, z = Math.floor(welcome.self.z), block = game.room.world.get(x, y, z);
+    a.socket.send(JSON.stringify({ type: 'command', requestId: 1, method: 'edit', x, y, z, block: AIR, expected: game.room.expected(x, y, z) }));
+    const supplies = await a.next(m => m.type === 'supplies');
+    await a.next(m => m.type === 'result' && m.requestId === 1);
+    game.persistence.save = async () => { throw new Error('Disk full'); };
+    a.socket.send(JSON.stringify({ type: 'command', requestId: 2, method: 'drop', source: 0, amount: 1, expectedSource: supplies.inventory.stacks[0] }));
+    assert.equal((await a.next(m => m.type === 'unavailable')).reason, 'storage');
+    assert.equal(a.messages.some(m => m.type === 'drops' || m.type === 'supplies' || m.type === 'result' && m.requestId === 2), false);
+    const saved = JSON.parse(await readFile(join(directory, 'world.json'), 'utf8'));
+    assert.deepEqual(saved.drops, []); assert.equal(count(saved.profiles.find(([key]) => key === token)[1], block), 1);
+  } finally {
+    a?.socket.terminate(); await game?.close(); await rm(directory, { recursive: true, force: true });
   }
 });

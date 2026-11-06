@@ -16,10 +16,12 @@ import { slabPlacement } from './slabs.js';
 import { PerformanceOverlay } from './performance.js';
 import { TouchControls } from './touch.js';
 import { GraphicsSettings } from './graphics.js';
-import { Inventory, CREATIVE_ITEMS, validInventory } from './inventory.js';
+import { Inventory, CREATIVE_ITEMS, STACK_LIMIT, validInventory } from './inventory.js';
 import { InventoryView } from './inventory-ui.js';
 import { MenuScreens } from './menu.js';
-import { HotbarScroll } from './input.js';
+import { HotbarScroll, disableUIFocus } from './input.js';
+import { DropRenderer } from './drop-renderer.js';
+import { PICKUP_RADIUS } from './drops.js';
 import './style.css';
 
 const menu = document.querySelector('#menu');
@@ -27,6 +29,7 @@ const play = document.querySelector('#play');
 const error = document.querySelector('#error');
 const BLOCK_NAMES = Object.fromEntries(CREATIVE_ITEMS.map(item => [item.id, item.name]));
 BLOCK_NAMES[WATER] = 'Water';
+disableUIFocus(document);
 
 try {
   start();
@@ -119,6 +122,7 @@ function start() {
       else if (action === 'fly') toggleFlight();
       else if (action === 'use') void useDoor();
       else if (action === 'undo') void replayEdit(false);
+      else if (action === 'drop') void dropItem();
     },
   });
   touch.onModeChange = () => { pauseGame(); updateMode(); };
@@ -148,6 +152,7 @@ function start() {
   const timeLabel = document.querySelector('#time-label');
   timeToggle.addEventListener('click', () => void history.request('time', { action: 'hold' }));
   const inventory = new Inventory();
+  const droppedItems = new DropRenderer(scene, atlas, material => lanternLighting.applyMaterial(material));
   history.inventory = () => inventory.snapshot();
   let selected = inventory.block;
   let target = null;
@@ -162,11 +167,30 @@ function start() {
     reset() { if (inventory.reset()) inventoryChanged(); },
     action(args) { return history.request('inventory', args); },
     craft(block) { return history.request('craft', { block }); },
+    drop(args) { return history.request('drop', args); },
     close: closeInventory,
     escape() { closeInventory(true, { fromEscape: true }); },
   });
   inventoryButton.addEventListener('click', openInventory);
   renderHotbar();
+
+  let dropping = false;
+  async function dropItem(wholeStack = false) {
+    if (dropping || !history.ready) return;
+    if (inventory.mode !== 'gather') { notify('Dropping items is available in Gather worlds.'); return; }
+    const source = inventory.selected, stack = inventory.stacks[source];
+    if (!stack) { notify('This hotbar slot is empty.'); return; }
+    dropping = true;
+    try {
+      const result = await history.request('drop', { source, amount: wholeStack ? stack.count : 1, expectedSource: { ...stack } });
+      if (!result.ok) notify(dropFailure(result.reason));
+    } finally { dropping = false; }
+  }
+
+  function dropFailure(reason) {
+    return { changed: 'That stack changed. Try dropping it again.', drops_full: 'There are too many dropped stacks. Pick some up first.',
+      blocked: 'Move into an open space to drop items.', storage: 'Could not save the dropped item.', disconnected: 'Waiting for the host to reconnect…' }[reason] || 'Could not drop that item. Try again.';
+  }
 
   function notify(message) {
     toast.textContent = message;
@@ -198,7 +222,6 @@ function start() {
       const name = document.createElement('span'); name.textContent = BLOCK_NAMES[block] || 'Empty';
       button.append(key); if (block) button.append(supply, inventoryView.icon(block)); button.append(name); hotbar.append(button);
     });
-    document.querySelector('#selected-caption').textContent = `${(BLOCK_NAMES[selected] || 'EMPTY SLOT').toUpperCase()}${inventory.mode === 'gather' && selected ? ` · ${inventory.slotCount(inventory.selected)} LEFT` : ''}`;
   }
 
   function inventoryChanged() {
@@ -238,7 +261,6 @@ function start() {
       else { menu.hidden = false; requestPlay(); }
     } else {
       menu.hidden = false;
-      play.focus({ preventScroll: true });
     }
   }
 
@@ -408,6 +430,9 @@ function start() {
       return;
     }
     if (!playing) return;
+    if (event.code === 'KeyQ' && !modified) {
+      event.preventDefault(); if (!event.repeat) void dropItem(event.shiftKey); return;
+    }
     if (/^Digit[1-9]$/.test(event.code) && !event.repeat && !modified) {
       event.preventDefault(); if (inventory.select(Number(event.code.slice(-1)) - 1)) inventoryChanged(); return;
     }
@@ -669,6 +694,7 @@ function start() {
   let previous = performance.now();
   let accumulator = 0;
   let avatarShadowElapsed = 0;
+  let pickupElapsed = 0, pickingUp = false;
   const fixedStep = 1 / 120;
   renderer.setAnimationLoop((now) => {
     const frameStarted = performance.now();
@@ -707,6 +733,17 @@ function start() {
       particles.update(elapsed, world);
     }
     history.update(elapsed);
+    droppedItems.update(playing ? elapsed : 0, world);
+    pickupElapsed += elapsed;
+    if (playing && history.ready && inventory.mode === 'gather' && !pickingUp && pickupElapsed >= 0.25) {
+      pickupElapsed = 0;
+      // The host owns the pickup delay; its wall clock may differ from this device's.
+      if (droppedItems.items.some(item => Math.hypot(item.x - player.x, item.z - player.z) <= PICKUP_RADIUS && Math.abs(item.y - player.y) < 2
+        && inventory.stacks.some(stack => !stack || stack.block === item.block && stack.count < STACK_LIMIT))) {
+        pickingUp = true;
+        void history.request('pickup').finally(() => { pickingUp = false; });
+      }
+    }
     if (history.mode) chunkRenderer.update(player);
     play.disabled = !history.ready || !chunkRenderer.readyAt(player);
     inventoryButton.disabled = !history.ready;
@@ -766,6 +803,7 @@ function start() {
   history.pose = () => ({ x: player.x, y: player.y, z: player.z, yaw: camera.rotation.y, pitch: camera.rotation.x,
     active: playing, flying: player.flying });
   history.callbacks = {
+    drops(items) { droppedItems.sync(items); },
     supplies(saved) {
       if (!validInventory(saved) || saved.mode !== 'gather') return;
       inventory.restore({ ...saved, selected: inventory.selected }); renderHotbar(); inventoryView.render();
@@ -778,6 +816,7 @@ function start() {
       if (history.mode === 'multiplayer') renderConnectedPlayers([], history.blocked ? 'Not connected.' : 'Connecting…');
     },
     welcome(message) {
+      droppedItems.sync([]);
       Object.assign(player, message.self, { vy: 0, grounded: false });
       camera.rotation.set(message.self.pitch, message.self.yaw, 0, 'YXZ');
       updateMode(); clearInput(); syncCamera(); rebuildMeshes();
@@ -788,6 +827,7 @@ function start() {
       sessionMode.dataset.mode = message.gameMode;
       sessionModeValue.textContent = { creative: 'Creative · unlimited blocks', gather: 'Gather · collect & build' }[message.gameMode] || 'Unknown';
       loadInventory(message);
+      document.querySelector('[data-touch="drop"]').hidden = inventory.mode !== 'gather';
       play.disabled = true;
       retryButton.hidden = true;
       saveNow.hidden = exportWorld.hidden = history.mode !== 'single';
@@ -862,6 +902,7 @@ function start() {
     }
   }
   function openSession(mode) {
+    droppedItems.sync([]);
     closeInventory(false); inventoryProfile = null;
     pauseGame();
     diagnostics.reset();
@@ -899,6 +940,7 @@ function start() {
     } catch (cause) { error.hidden = false; error.textContent = cause.message; }
   });
   function showChooser() {
+    droppedItems.sync([]);
     closeInventory(false); inventoryProfile = null;
     pauseGame();
     diagnostics.reset();

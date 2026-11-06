@@ -1,3 +1,19 @@
+export function disableUIFocus(root) {
+  const editing = target => target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])');
+  root.addEventListener('keydown', event => {
+    if (event.key !== 'Tab') return;
+    event.preventDefault();
+    event.stopPropagation();
+  }, true);
+  root.addEventListener('pointerdown', event => {
+    if (!editing(event.target) && event.target?.closest?.('button, a[href], [tabindex]')) event.preventDefault();
+  }, true);
+  // Also catch native dialog autofocus and focus restored by the browser.
+  root.addEventListener('focusin', event => {
+    if (!editing(event.target)) event.target?.blur?.();
+  }, true);
+}
+
 // Wheels step once per notch; small trackpad deltas accumulate into a step.
 export class HotbarScroll {
   delta = 0;

@@ -21,10 +21,10 @@ export class MenuScreens {
     for (const button of root.querySelectorAll('[data-menu-screen]')) {
       button.addEventListener('click', () => this.show(button.dataset.menuScreen));
     }
-    this.show('home', false);
+    this.show('home');
   }
 
-  show(screen, focus = true) {
+  show(screen) {
     if (!SCREENS[screen]) return;
     this.screen = screen;
     this.root.dataset.screen = screen;
@@ -36,10 +36,6 @@ export class MenuScreens {
     this.description.textContent = screen === 'pause' ? this.worldDescription : description;
     this.back.hidden = screen === 'home' || screen === 'pause';
     this.back.textContent = screen === 'create' ? '← Your worlds' : '← Back';
-    if (focus) {
-      const target = this.back.hidden ? this.root.querySelector(screen === 'pause' ? '#play' : '[data-menu-screen="single"]') : this.back;
-      target?.focus({ preventScroll: true });
-    }
     this.root.querySelector('.menu-card').scrollTop = 0;
     this.onChange?.(screen);
   }

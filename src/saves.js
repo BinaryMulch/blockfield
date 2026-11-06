@@ -1,6 +1,7 @@
 import { HEIGHT, isBlock } from './world.js';
 import { CHUNK_SIZE, WORLD_SIZE, GENERATOR_VERSION } from './generation.js';
 import { validInventory, GAME_MODES } from './inventory.js';
+import { validDrops } from './drops.js';
 
 export const SAVE_VERSION = 1;
 export const SAVE_FORMAT = 'blockfield-world';
@@ -57,6 +58,7 @@ export function validateSave(save) {
     }
   }
   if (save.saveRevision !== undefined && (!Number.isSafeInteger(save.saveRevision) || save.saveRevision < 0)) throw new SaveError('The saved world revision is invalid.');
+  if (save.drops !== undefined && (save.gameMode !== 'gather' || !validDrops(save.drops, metadata.size))) throw new SaveError('The saved dropped items are invalid.');
   return save;
 }
 
@@ -66,7 +68,7 @@ export function validPose(pose, size = WORLD_SIZE) {
     && Math.abs(pose.pitch) <= Math.PI / 2 + 0.01 && typeof pose.flying === 'boolean';
 }
 
-export function captureSave({ world, id, name, createdAt, clock, player, inventory, gameMode = 'creative', profiles }) {
+export function captureSave({ world, id, name, createdAt, clock, player, inventory, gameMode = 'creative', profiles, drops }) {
   const save = { format: SAVE_FORMAT, version: SAVE_VERSION, id, name: name.trim().slice(0, 40) || 'My world', createdAt,
     updatedAt: Date.now(), world: world.metadata(), clock: { phase: clock.phase, held: clock.held },
     edits: [...world.edits].map(([key, cells]) => [key, [...cells]]), gameMode };
@@ -79,6 +81,7 @@ export function captureSave({ world, id, name, createdAt, clock, player, invento
     save.inventory = structuredClone(inventory);
   }
   if (profiles) save.profiles = profiles.map(([token, inventory]) => [token, structuredClone(inventory)]);
+  if (drops) save.drops = structuredClone(drops);
   return validateSave(save);
 }
 

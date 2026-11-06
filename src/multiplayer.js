@@ -3,7 +3,7 @@ import { CHUNK_SIZE } from './generation.js';
 import { HEIGHT } from './world.js';
 import { newWorldId, validPlayerToken } from './saves.js';
 
-const PROTOCOL = 4;
+const PROTOCOL = 5;
 export class MultiplayerClient {
   ready = false;
   selfId = null;
@@ -83,6 +83,7 @@ export class MultiplayerClient {
         try { localStorage.setItem('blockfield-player-token', this.playerToken); } catch { /* Keep the identity for this connection. */ }
       }
       this.callbacks.welcome?.(message);
+      this.callbacks.drops?.(message.drops || []);
       this.callbacks.players?.(message.players);
       return;
     }
@@ -108,7 +109,8 @@ export class MultiplayerClient {
       }
       this.revision = message.revision;
       if (changes.length) this.callbacks.edit?.({ ...message, changes });
-    } else if (message.type === 'supplies') this.callbacks.supplies?.(message.inventory);
+    } else if (message.type === 'drops') this.callbacks.drops?.(message.drops);
+    else if (message.type === 'supplies') this.callbacks.supplies?.(message.inventory);
     else if (message.type === 'result') this.resolve(message.requestId, { ok: message.ok, reason: message.reason, moved: message.moved, swapped: message.swapped });
   }
 

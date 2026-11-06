@@ -38,6 +38,11 @@ export function buildFlowerGeometry(world) {
   return buildGeometry(world, 'flowers');
 }
 
+export function buildItemGeometry(block) {
+  const mode = isFlower(block) ? 'flowers' : block === LANTERN ? 'lantern' : block === GLASS ? 'glass' : 'solid';
+  return buildGeometry({ get: (x, y, z) => x === 0 && y === 0 && z === 0 ? block : 0 }, mode, { minX: 0, maxX: 1, minZ: 0, maxZ: 1 });
+}
+
 export function buildChunkGeometry(world, cx, cz) {
   return Object.fromEntries(['solid', 'water', 'glass', 'lantern', 'flowers'].map(mode => [mode, buildGeometry(world, mode, { minX: cx * 16, maxX: cx * 16 + 16, minZ: cz * 16, maxZ: cz * 16 + 16 })]));
 }

@@ -6,6 +6,7 @@ import { nearbyChunks, WORLD_SIZE, terrainColumn, CHUNK_SIZE } from './generatio
 import { captureSave, restoreEdits, newWorldId } from './saves.js';
 import { browserSaves, saveMessage } from './browser-saves.js';
 import { Inventory, emptyGatherInventory } from './inventory.js';
+import { ItemDrops } from './drops.js';
 const motionStamp = (pose, clock) => [pose.x, pose.y, pose.z, pose.yaw % (Math.PI * 2), pose.pitch, pose.flying === true, clock.phase, clock.held].join(':');
 
 export function serverURL(value, current = location.origin, port) {
@@ -43,6 +44,7 @@ export class LocalSession extends MultiplayerClient {
     this.saveRevision = saved?.saveRevision || 0;
     this.gameMode = saved ? saved.gameMode || 'creative' : gameMode;
     this.resources = this.gameMode === 'gather' ? new Inventory(saved?.inventory || emptyGatherInventory()) : null;
+    this.drops = new ItemDrops(saved?.drops);
     this.initialInventory = this.resources?.snapshot() || saved?.inventory || null;
     if (saved) restoreEdits(this.world, saved);
     this.clock = new DayClock(); this.clock.running = false;
@@ -59,6 +61,7 @@ export class LocalSession extends MultiplayerClient {
     this.callbacks.welcome?.({ self: this.self, world: this.world.metadata(), worldName: this.title, worldId: this.id, inventory: this.initialInventory,
       gameMode: this.gameMode, players: [this.self], maxPlayers: 1, urls: [], saved: true });
     this.callbacks.players?.([this.self]);
+    this.callbacks.drops?.(this.drops.snapshot());
   }
 
   snapshot() {
@@ -66,7 +69,7 @@ export class LocalSession extends MultiplayerClient {
     if (this.resources && !this.starting) inventory = { ...this.resources.snapshot(), selected: inventory?.selected ?? this.resources.selected };
     return captureSave({ world: this.world, id: this.id, name: this.title, createdAt: this.createdAt, clock: this.clock,
       player: this.starting ? this.self : this.pose?.() || this.self, gameMode: this.gameMode,
-      inventory });
+      inventory, ...(this.resources ? { drops: this.drops.snapshot() } : {}) });
   }
 
   save() {
@@ -120,6 +123,21 @@ export class LocalSession extends MultiplayerClient {
     if (!this.ready || this.closed) return { ok: false, reason: 'disconnected' };
     if (method === 'save') return { ok: await this.save() };
     if (this.saveError && method !== 'name') return { ok: false, reason: 'storage' };
+    if (method === 'drop' || method === 'pickup') {
+      if (this.editing) return { ok: false, reason: 'busy' };
+      this.editing = true;
+      try {
+        const pose = this.pose?.() || this.self;
+        const result = method === 'drop' ? this.drops.drop(this.world, this.resources, pose, args, newWorldId()) : this.drops.pickup(this.world, this.resources, pose);
+        if (!result.ok) return result;
+        // Like private block edits, retain unsaved work in memory if storage fails.
+        // Publish both sides so retry/export shows the same inventory and world.
+        this.callbacks.supplies?.(this.resources.snapshot());
+        this.callbacks.drops?.(this.drops.snapshot());
+        if (!await this.save()) return { ok: false, reason: 'storage' };
+        return result;
+      } finally { this.editing = false; }
+    }
     if (method === 'craft' || method === 'inventory') {
       const result = (method === 'craft' ? this.resources?.craft(args.block) : this.resources?.action(args)) || { ok: false, reason: 'invalid' };
       if (!result.ok) return result;

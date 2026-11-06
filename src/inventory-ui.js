@@ -47,6 +47,8 @@ export class InventoryView {
     this.dialog.addEventListener('pointermove', event => { this.pointer = { x: event.clientX, y: event.clientY }; this.positionCursor(); });
     this.dialog.querySelector('#inventory-reset').addEventListener('click', callbacks.reset);
     this.dialog.querySelector('#inventory-craft').addEventListener('click', () => void this.craft());
+    this.dialog.querySelector('#inventory-drop-one').addEventListener('click', () => void this.drop(false));
+    this.dialog.querySelector('#inventory-drop-stack').addEventListener('click', () => void this.drop(true));
     this.back.addEventListener('click', () => callbacks.close(true));
     this.dialog.querySelector('#inventory-close').addEventListener('click', () => callbacks.close(true));
     this.dialog.addEventListener('cancel', event => { event.preventDefault(); callbacks.escape(); });
@@ -81,17 +83,17 @@ export class InventoryView {
   render() {
     const gather = this.model.mode === 'gather';
     if (!this.pending && this.held && (this.model.stacks?.[this.held.source]?.block !== this.held.block || this.model.slotCount(this.held.source) < this.held.amount)) this.held = null;
-    const focus = document.activeElement?.dataset?.inventorySlot;
-    if (focus !== undefined) this.restoreFocus = focus;
     this.dialog.classList.toggle('gather-inventory', gather); this.dialog.setAttribute('aria-busy', String(this.pending));
     this.dialog.querySelector('#inventory-title').textContent = gather ? 'Inventory' : 'Creative inventory';
     this.dialog.querySelector('.eyebrow').textContent = gather ? 'GATHER & BUILD' : 'UNLIMITED SUPPLIES';
-    this.dialog.querySelector('#inventory-description').textContent = gather ? 'Click to move a stack. Right-click to split or place one. Shift-click to move between your backpack and hotbar.' : 'Choose a hotbar slot, then choose its block. Your supplies never run out.';
+    this.dialog.querySelector('#inventory-description').textContent = gather ? 'Click to move a stack. Right-click to split or place one. Shift-click to move between your backpack and hotbar. Drop buttons use the held items, or your selected hotbar slot.' : 'Choose a hotbar slot, then choose its block. Your supplies never run out.';
     this.dialog.querySelector('.inventory-footer > span').textContent = gather ? 'Click move · Right-click split · I return · Esc return' : '1–9 choose slot · I return · Esc return';
     this.dialog.querySelector('#inventory-catalog').hidden = gather;
     this.dialog.querySelector('#inventory-storage-section').hidden = !gather;
     this.dialog.querySelector('#inventory-reset').hidden = gather;
     this.dialog.querySelector('#inventory-crafting').hidden = !gather;
+    this.dialog.querySelector('#inventory-drop-actions').hidden = !gather;
+    for (const id of ['#inventory-drop-one', '#inventory-drop-stack']) this.dialog.querySelector(id).disabled = this.pending || !this.model.stacks?.[this.held?.source ?? this.model.selected];
     this.dialog.querySelector('#inventory-hotbar-label').hidden = !gather;
     this.slots.replaceChildren(...Array.from({ length: 9 }, (_, i) => this.stackButton(i, gather)));
     this.storage.replaceChildren(...(gather ? Array.from({ length: 27 }, (_, i) => this.stackButton(i + 9, true)) : []));
@@ -109,7 +111,6 @@ export class InventoryView {
       craft.disabled = this.pending || !!this.held || !this.model.recipePlan(recipe.block).ok;
     }
     this.filter(); this.renderCursor();
-    if (this.restoreFocus !== undefined && !this.pending && this.dialog.open) { this.dialog.querySelector(`[data-inventory-slot="${this.restoreFocus}"]`)?.focus({ preventScroll: true }); this.restoreFocus = undefined; }
   }
   async run(args) {
     if (this.pending) return { ok: false, reason: 'busy' };
@@ -140,7 +141,7 @@ export class InventoryView {
   }
   hotbarKey(index) {
     if (this.model.mode !== 'gather') return false;
-    const source = this.hovered ?? Number(document.activeElement?.dataset?.inventorySlot);
+    const source = this.hovered;
     if (!Number.isInteger(source) || source < 0 || source >= 36 || source === index) return false;
     if (this.pending) return true;
     this.held = null;
@@ -159,14 +160,29 @@ export class InventoryView {
     catch { this.status.textContent = 'Could not complete crafting. Check the connection.'; }
     finally { this.pending = false; }
   }
+  async drop(wholeStack) {
+    if (this.pending || this.model.mode !== 'gather') return;
+    const source = this.held?.source ?? this.model.selected, stack = this.model.stacks[source];
+    if (!stack) return;
+    const held = this.held ? { ...this.held } : null;
+    const amount = wholeStack ? held?.amount ?? stack.count : 1;
+    this.pending = true; this.render();
+    let result;
+    try { result = await this.callbacks.drop({ source, amount, expectedSource: { ...stack } }); }
+    catch { result = { ok: false, reason: 'disconnected' }; }
+    finally { this.pending = false; }
+    if (result.ok) this.held = held && held.amount > amount ? { ...held, amount: held.amount - amount } : null;
+    this.render();
+    if (!result.ok) this.failure(result);
+  }
   failure(result) {
-    this.status.textContent = { inventory_full: 'There is no room for that stack.', supplies: 'Collect the ingredients first.', occupied: 'Put the held items in an empty or matching slot.', changed: 'That stack changed. Pick it up again.', storage: 'Could not save this move. Retry saving from the menu.', disconnected: 'Waiting for the host to reconnect…' }[result.reason] || 'That move could not be completed.';
+    this.status.textContent = { drops_full: 'Too many dropped stacks. Pick some up first.', blocked: 'Move into an open space to drop items.', inventory_full: 'There is no room for that stack.', supplies: 'Collect the ingredients first.', occupied: 'Put the held items in an empty or matching slot.', changed: 'That stack changed. Pick it up again.', storage: 'Could not save this move. Retry saving from the menu.', disconnected: 'Waiting for the host to reconnect…' }[result.reason] || 'That move could not be completed.';
   }
   filter() {
     const query = this.search.value.trim().toLowerCase(); let count = 0;
     for (const button of this.grid.children) { button.hidden = !itemName(Number(button.dataset.item)).toLowerCase().includes(query); if (!button.hidden) count++; }
     this.dialog.querySelector('#inventory-results').textContent = count ? `${count} blocks · Unlimited supplies` : 'No blocks found. Try another name.';
   }
-  open(resume) { this.held = null; this.hovered = null; this.search.value = ''; this.render(); this.back.textContent = resume ? 'Back to game' : 'Back to menu'; this.dialog.showModal(); this.dialog.querySelector('#inventory-close').focus(); }
+  open(resume) { this.held = null; this.hovered = null; this.search.value = ''; this.render(); this.back.textContent = resume ? 'Back to game' : 'Back to menu'; this.dialog.showModal(); }
   close() { this.held = null; this.hovered = null; this.renderCursor(); this.dialog.close(); }
 }

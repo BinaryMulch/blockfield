@@ -6,8 +6,9 @@ import { ChunkWorld } from '../src/chunks.js';
 import { CHUNK_SIZE, chunkKey, chunkIndex } from '../src/generation.js';
 import { captureSave, restoreEdits, validPlayerToken } from '../src/saves.js';
 import { Inventory, emptyGatherInventory, GAME_MODES } from '../src/inventory.js';
+import { ItemDrops } from '../src/drops.js';
 
-export const PROTOCOL = 4;
+export const PROTOCOL = 5;
 export const MAX_PLAYERS = 8;
 const COLORS = ['#db8b58', '#669bc1', '#b17bb2', '#79a56c', '#d2b358', '#d77587', '#69aeaa', '#8f8ac5'];
 const indexOf = (x, y, z) => `${x},${y},${z}`;
@@ -51,6 +52,7 @@ export class GameRoom {
   revision = 0;
   clock = new DayClock();
   colorIndex = 0;
+  drops = new ItemDrops();
 
   constructor({ world = new ChunkWorld({ seed: process.env.WORLD_SEED || 'Blockfield' }), maxPlayers = MAX_PLAYERS, name = process.env.WORLD_NAME || 'Blockfield Together', gameMode = process.env.GAME_MODE || 'gather' } = {}) {
     if (!GAME_MODES.includes(gameMode)) throw new Error('GAME_MODE must be creative or gather.');
@@ -67,13 +69,14 @@ export class GameRoom {
   }
 
   toSave() { return captureSave({ world: this.world, id: this.worldId, name: this.name, createdAt: this.createdAt, clock: this.clock, gameMode: this.gameMode,
-    ...(this.gameMode === 'gather' ? { profiles: [...this.profiles].map(([token, inventory]) => [token, inventory.snapshot()]) } : {}) }); }
+    ...(this.gameMode === 'gather' ? { profiles: [...this.profiles].map(([token, inventory]) => [token, inventory.snapshot()]), drops: this.drops.snapshot() } : {}) }); }
 
   static fromSave(save) {
     const world = new ChunkWorld({ seed: save.world.seed, size: save.world.size });
     restoreEdits(world, save);
     const room = new GameRoom({ world, name: save.name, gameMode: save.gameMode || 'creative' });
     room.profiles = new Map((save.profiles || []).map(([token, inventory]) => [token, new Inventory(inventory)]));
+    room.drops = new ItemDrops(save.drops);
     room.worldId = save.id; room.createdAt = save.createdAt;
     room.clock.phase = save.clock.phase; room.clock.held = save.clock.held;
     return room;
@@ -118,7 +121,7 @@ export class GameRoom {
 
   snapshot(player) {
     return { type: 'welcome', protocol: PROTOCOL, sessionId: this.sessionId, worldId: this.worldId, self: this.publicPlayer(player), players: this.playerList(),
-      world: this.metadata(), worldName: this.name, revision: this.revision, clock: this.clockState(), maxPlayers: this.maxPlayers, gameMode: this.gameMode,
+      world: this.metadata(), worldName: this.name, revision: this.revision, clock: this.clockState(), maxPlayers: this.maxPlayers, gameMode: this.gameMode, drops: this.drops.snapshot(),
       ...(player.inventory ? { inventory: player.inventory.snapshot(), playerToken: player.token } : {}) };
   }
 
@@ -158,6 +161,8 @@ export class GameRoom {
     if (!player) return { ok: false, reason: 'disconnected' };
     const { method } = message;
     player.history.spendSlot = undefined;
+    if (method === 'drop') return this.drops.drop(this.world, player.inventory, player.pose, message, randomUUID());
+    if (method === 'pickup') return this.drops.pickup(this.world, player.inventory, player.pose);
     if (method === 'craft' || method === 'inventory') {
       const result = (method === 'craft' ? player.inventory?.craft(message.block) : player.inventory?.action(message)) || { ok: false, reason: 'invalid' };
       return { ...result, type: 'supplies' };

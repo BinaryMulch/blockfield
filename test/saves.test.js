@@ -9,7 +9,7 @@ import { WebSocket } from 'ws';
 import { ChunkWorld } from '../src/chunks.js';
 import { captureSave, restoreEdits, validateSave } from '../src/saves.js';
 import { DiskWorldStore } from '../server/disk-saves.js';
-import { GameRoom } from '../server/room.js';
+import { GameRoom, PROTOCOL } from '../server/room.js';
 import { createGameServer } from '../server.js';
 import { AIR, PLANKS, LANTERN, DAISY, doorBlock } from '../src/world.js';
 
@@ -137,7 +137,7 @@ function peer(url) {
   const socket = new WebSocket(url), messages = [];
   socket.on('error', () => {});
   socket.on('message', raw => messages.push(JSON.parse(raw.toString())));
-  socket.on('open', () => socket.send(JSON.stringify({ type: 'hello', protocol: 4, name: 'Save tester' })));
+  socket.on('open', () => socket.send(JSON.stringify({ type: 'hello', protocol: PROTOCOL, name: 'Save tester' })));
   const wait = predicate => {
     const existing = messages.find(predicate); if (existing) return Promise.resolve(existing);
     return new Promise((resolve, reject) => {

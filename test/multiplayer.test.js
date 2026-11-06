@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { WebSocket } from 'ws';
-import { GameRoom, MAX_PLAYERS, cleanName } from '../server/room.js';
+import { GameRoom, MAX_PLAYERS, cleanName, PROTOCOL } from '../server/room.js';
 import { createGameServer, lanURLs } from '../server.js';
 import { World, AIR, GRASS, STONE, PLANKS, SLAB, LANTERN, DAISY, doorState } from '../src/world.js';
 
@@ -144,7 +144,7 @@ function connect(url, name, origin) {
       socket.on('message', listener);
     });
   };
-  socket.on('open', () => socket.send(JSON.stringify({ type: 'hello', protocol: 4, name })));
+  socket.on('open', () => socket.send(JSON.stringify({ type: 'hello', protocol: PROTOCOL, name })));
   return { socket, messages, wait, send: message => socket.send(JSON.stringify(message)) };
 }
 

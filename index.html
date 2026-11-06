@@ -93,7 +93,8 @@
         </section>
         <section data-menu-panel="controls" class="controls-screen" hidden>
         <div class="control-picker"><label for="control-mode">Controls</label><select id="control-mode"><option value="mouse">Mouse &amp; keyboard</option><option value="touch">Touch</option></select></div>
-        <p id="touch-instructions" class="touch-instructions">Move with the left stick. Drag the world to look. Aim the crosshair, then tap Break or Place. Tap Pause to return here. Landscape gives you more room.</p>
+        <p class="controls-note">Click or tap to use menus. Tab and Shift+Tab do not move through controls, and buttons do not keep focus. Click a text field to type.</p>
+        <p id="touch-instructions" class="touch-instructions">Move with the left stick. Drag the world to look. Aim the crosshair, then tap Break or Place. In Gather, tap Drop to drop one item from the selected hotbar slot. Tap Pause to return here, then Inventory to move stacks or drop a whole stack. Landscape gives you more room.</p>
         <div class="instructions">
           <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</span>
           <span><kbd>SHIFT</kbd> hold to sprint</span>
@@ -106,6 +107,10 @@
           <span>Scroll / <kbd>1</kbd>–<kbd>9</kbd> hotbar slots</span>
           <span>Middle-click to pick a block</span>
           <span><kbd>I</kbd> open inventory</span>
+          <span><kbd>Q</kbd> drop one / <kbd>SHIFT</kbd><kbd>Q</kbd> drop stack (Gather)</span>
+          <span>Inventory (Gather): click to move stacks, right-click to split or place one</span>
+          <span>Inventory (Gather): Shift-click to move between backpack and hotbar</span>
+          <span>Inventory (Gather): hover a slot, then <kbd>1</kbd>–<kbd>9</kbd> to swap with the hotbar</span>
           <span><kbd>ESC</kbd> pause / close menu</span>
           <span><kbd>M</kbd> mute / unmute</span>
           <span><kbd>P</kbd> performance stats</span>
@@ -117,6 +122,7 @@
           <span><kbd>L</kbd> lantern / <kbd>B</kbd> wooden slab</span>
           <span><kbd>R</kbd> choose / cycle flowers</span>
         </div>
+        <p class="controls-note">Gather: walk close to dropped items to collect them after a short delay, including items from other players. Inventory has Drop one and Drop stack buttons for held items, or the selected hotbar slot.</p>
         </section>
         <div class="session-panel" data-menu-panel="pause" hidden>
           <div id="network-status" class="session-row" role="status" hidden></div>
@@ -130,7 +136,7 @@
               <div class="world-library-actions"><button type="button" data-menu-screen="create">Create New World</button><button id="import-world" type="button">Import Backup</button></div>
             </div>
             <label class="world-search-label" for="world-search"><span>Find a world</span><input id="world-search" type="search" aria-label="Search worlds by name or seed" placeholder="Search by world name or seed…" autocomplete="off" spellcheck="false" /></label>
-            <div id="saved-worlds" class="saved-worlds" tabindex="0" aria-label="Saved single-player worlds">Loading saved worlds…</div>
+            <div id="saved-worlds" class="saved-worlds" aria-label="Saved single-player worlds">Loading saved worlds…</div>
             <input id="import-file" type="file" accept=".json,application/json" hidden />
           </section>
           <div class="world-choice" data-menu-panel="create" hidden><h2>A fresh start</h2><label for="world-name">World name</label><input id="world-name" maxlength="40" placeholder="My world" /><label for="world-mode">World mode</label><select id="world-mode"><option value="gather">Gather · collect &amp; build</option><option value="creative">Creative · unlimited blocks</option></select><label for="world-seed">Seed <small>(optional)</small></label><input id="world-seed" maxlength="80" placeholder="A new landscape every time" /><button id="create-world" type="button">Create a new world</button></div>
@@ -148,6 +154,7 @@
         <section id="inventory-storage-section" hidden><h3>Inventory</h3><nav id="inventory-storage" class="inventory-storage" aria-label="Backpack"></nav></section>
         <h3 id="inventory-hotbar-label" hidden>Hotbar</h3><nav id="inventory-hotbar" class="inventory-hotbar" aria-label="Hotbar"></nav>
         <p id="inventory-status" class="inventory-status" role="status" aria-live="polite"></p>
+        <div id="inventory-drop-actions" hidden><button id="inventory-drop-one" type="button">Drop one</button> <button id="inventory-drop-stack" type="button">Drop stack</button></div>
         <div id="inventory-catalog"><label class="inventory-search-label" for="inventory-search">Find a block</label><input id="inventory-search" class="inventory-search" type="search" placeholder="Search blocks and flowers…" autocomplete="off" spellcheck="false" />
         <p id="inventory-results" class="inventory-results" role="status" aria-live="polite"></p><div id="inventory-grid" class="inventory-grid" aria-label="Unlimited block supplies"></div></div>
         <div id="inventory-cursor" class="inventory-cursor" hidden></div>
@@ -166,13 +173,13 @@
         <button type="button" data-touch="down" aria-label="Fly down" hidden>Down</button>
         <button type="button" data-touch="use">Use door</button>
         <button type="button" data-touch="undo">Undo</button>
+        <button type="button" data-touch="drop" hidden>Drop</button>
       </div>
       <div class="touch-actions"><button type="button" data-touch="break">Break</button><button type="button" data-touch="place">Place</button><button type="button" data-touch="jump">Jump</button></div>
     </div>
     <footer class="hud">
 
       <nav id="hotbar" class="hotbar" aria-label="Choose a hotbar slot"></nav>
-      <span class="selected-caption" id="selected-caption">GRASS</span>
     </footer>
     <script type="module" src="/src/main.js"></script>
   </body>

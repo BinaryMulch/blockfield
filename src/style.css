@@ -2,7 +2,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; overflow: hidden; background: #bfdce5; }
 button { font: inherit; cursor: pointer; }
-button:focus-visible { outline: 3px solid #cf9a3a; outline-offset: 5px; }
+:focus { outline: none; }
 [hidden] { display: none !important; }
 #game { display: block; width: 100vw; height: 100vh; }
 .brand { position: fixed; top: 30px; left: 34px; display: flex; align-items: center; gap: 11px; font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 15px; letter-spacing: 2px; z-index: 2; pointer-events: none; }
@@ -88,8 +88,8 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
   .mode-indicator { top: 82px; }
 }
 .hud { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); text-align: center; z-index: 2; }
-.hotbar { display: flex; width: max-content; margin-inline: auto; gap: 7px; padding: 8px; border: 1px solid #fff9; border-radius: 12px; background: #ecf0debd; box-shadow: 0 5px 25px #28433215; backdrop-filter: blur(12px); }
-.slot { position: relative; width: clamp(22px, 5.6vw, 68px); height: 82px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 8px 9px; border: 1px solid transparent; border-radius: 7px; background: #fff4; color: #52614c; font-size: 10px; }
+.hotbar { display: flex; width: max-content; margin-inline: auto; gap: 7px; padding: 8px; border: 1px solid #fff9; border-radius: 2px; background: #ecf0debd; box-shadow: 0 5px 25px #28433215; backdrop-filter: blur(12px); }
+.slot { position: relative; width: clamp(22px, 5.6vw, 68px); height: 72px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 8px 9px; border: 1px solid transparent; border-radius: 0; background: #fff4; color: #52614c; font-size: 10px; }
 .slot:hover { background: #ffffffe0; }
 .slot.selected { background: #fffbea; color: #294f3e; border-color: #5c7859; box-shadow: 0 2px 0 #56704b; }
 .slot-key { position: absolute; top: 6px; left: 8px; font-size: 9px; opacity: .6; }
@@ -161,7 +161,6 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
 .block-icon.slab::before { height: 5px; }
 .block-icon.flower { background-color: transparent; box-shadow: none; transform: none; }
 .block-icon.flower::before { display: none; }
-.selected-caption { display: block; margin-top: 11px; font-size: 8px; font-weight: 700; letter-spacing: 2px; color: #344d3f; }
 .mode-indicator { position: fixed; top: 79px; left: 35px; padding: 8px 11px; border-radius: 5px; background: #294f3edd; color: #fffbea; font-size: 10px; font-weight: 700; letter-spacing: 1px; pointer-events: none; }
 .mode-indicator span { margin-left: 9px; font-weight: 400; letter-spacing: 0; opacity: .8; }
 .crosshair { position: fixed; top: 50%; left: 50%; width: 15px; height: 15px; transform: translate(-50%, -50%); pointer-events: none; }
@@ -172,7 +171,7 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
 .toast.visible { opacity: 1; transform: translateX(-50%); }
 .playing .brand, .playing .corner-note { opacity: .65; }
 .playing .hud { pointer-events: none; }
-.night .brand, .night .selected-caption { color: #e5ede9; text-shadow: 0 1px 4px #061421; }
+.night .brand { color: #e5ede9; text-shadow: 0 1px 4px #061421; }
 .night .edition { border-color: #e5ede950; }
 .night .menu { background: #142c3c66; }
 .night .menu-card { color: #eff3e4; }
@@ -222,7 +221,6 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
 .touch-mode .hotbar { width: 100%; max-width: 1000px; overflow-x: auto; justify-content: flex-start; padding: 6px; touch-action: pan-x; overscroll-behavior-x: contain; }
 .touch-mode .slot { flex: 0 0 52px; width: 52px; height: 64px; font-size: 9px; padding: 6px 3px; gap: 4px; }
 .touch-mode .slot-key { display: none; }
-.touch-mode .selected-caption { margin-top: 6px; }
 .touch-mode .mode-indicator { top: calc(100px + env(safe-area-inset-top)); left: 160px; padding: 7px; }
 .touch-mode .mode-indicator span { display: none; }
 .touch-mode .brand { top: calc(20px + env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left)); }
@@ -281,9 +279,8 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
 .inventory-slot[aria-pressed='true'] { background: #929c8a; border-color: #30392b #fff #fff #30392b; box-shadow: inset 0 0 0 2px #cde2b6; color: white; }
 .inventory-slot[aria-pressed='true'] kbd { background: transparent; color: white; }
 .inventory-slot:hover { background: #a7a7a7; }
-.inventory-slot:focus-visible { outline: 2px solid #244a78; outline-offset: 2px; }
 .inventory-slot-name { display: none; position: absolute; z-index: 6; left: 0; bottom: calc(100% + 6px); padding: 7px 10px; border: 2px solid #47265c; background: #160c21f2; color: white; white-space: nowrap; font-size: 11px; pointer-events: none; box-shadow: 2px 2px 0 #0008; }
-.inventory-slot:hover .inventory-slot-name, .inventory-slot:focus-visible .inventory-slot-name { display: block; }
+.inventory-slot:hover .inventory-slot-name { display: block; }
 .inventory-quantity { top: auto; right: 4px; bottom: 3px; font-size: 15px; font-weight: 700; color: white; text-shadow: 2px 2px 0 #383838; }
 .inventory-crafting { display: block; margin-top: 0; padding: 0 0 15px; background: transparent; border-bottom: 2px solid #999; border-radius: 0; }
 .inventory-crafting h3 { margin-top: 0; }
@@ -299,6 +296,9 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
 .inventory-cursor b { position: absolute; right: 0; bottom: 0; color: white; font-size: 16px; text-shadow: 2px 2px #333; }
 .gather-inventory .inventory-footer { justify-content: flex-end; }
 .gather-inventory .inventory-footer span { margin-right: auto; }
+#inventory-drop-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+#inventory-drop-actions button { min-height: 44px; padding: 8px 14px; border: 2px solid; border-color: #fff #555 #555 #fff; border-radius: 0; background: #aaa; color: #222; font: inherit; font-size: 12px; }
+#inventory-drop-actions button:disabled { opacity: .5; cursor: default; }
 
 /* Focused menu screens stay legible over every landscape and time of day. */
 .menu, .touch-mode .menu { z-index: 4; padding: max(24px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom)); background: #142d298f; backdrop-filter: blur(12px); }
@@ -419,6 +419,7 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
 .instructions, .night .instructions { width: 100%; grid-template-columns: 1fr; margin: 0; padding: 0; border: 0; gap: 0; color: #2c4939; font-size: 14px; }
 .instructions > span { min-height: 44px; padding: 10px 0; border-bottom: 1px solid #cbd3c1; gap: 7px; flex-wrap: wrap; }
 .controls-screen kbd { font-size: 11px; padding: 4px 7px; background: #fffdf3; color: #294f3e; }
+.controls-note { margin: 16px 0; color: #4e6258; font-size: 13px; line-height: 1.6; text-align: left; }
 .hud, .mode-indicator { display: none; }
 .playing .hud, .playing .mode-indicator { display: block; }
 .playing .slot-key { display: none; }
