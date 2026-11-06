@@ -4,6 +4,8 @@ The same Node.js server runs on both platforms. It serves the browser game and m
 
 For the simple Git-pull workflow and the current root/nvm VM service, start with the [concise setup guide](../docs/setup.md).
 
+For routine updates on that existing VM, use [Update the Linux VM](../docs/setup.md#update-the-linux-vm). That procedure uses the installed service and its current save directory.
+
 ## Prebuilt server package (no build tools needed on the VM)
 
 On your Mac, from the project folder:

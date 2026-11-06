@@ -20,18 +20,18 @@ Choose **Single player** for a private browser world or **Multiplayer** for the 
 
 Keep the terminal open while hosting manually. **Ctrl+C** saves and stops the server. For local development, `npm run dev` serves live code changes. On a Mac, the included **Play Blockfield.command** launcher also starts development hosting.
 
-## Simple updates
+## Update a manually started server
 
-Stop a manually running server with Ctrl+C, then run from the project folder:
+Stop a manually running server with Ctrl+C, then run from the project folder. If systemd manages the server, use [Update the Linux VM](#update-the-linux-vm) instead.
 
 ```sh
-git pull --ff-only
-npm ci
-npm run build
+git pull --ff-only &&
+npm ci &&
+npm run build &&
 npm start
 ```
 
-The build step is required after pulling frontend changes. Refresh players' browsers after updating. Keep your existing `data/` directory; it is ignored by Git. `npm test` runs the game/server tests.
+The `&&` chain stops at the first failed command. Resolve that error before continuing. The build step is required after pulling frontend changes. Refresh players' game tabs after updating. Keep your configured save directory; the default `data/` directory is ignored by Git. `npm test` runs the game/server tests.
 
 ## Start automatically on Linux
 
@@ -77,19 +77,40 @@ systemctl status blockfield --no-pager -l
 
 Status should show **active (running)**. The service starts after reboot and keeps running after you disconnect. View logs with `journalctl -u blockfield -f` (Ctrl+C exits the log viewer).
 
-Update a service-managed server with:
+Use `systemctl stop blockfield` to stop it, and `systemctl restart blockfield` to restart it. Do not also run `npm start` while the service is using port 6200. If the Node executable path changes, update `ExecStart`, run `systemctl daemon-reload`, then restart the service.
+
+## Update the Linux VM
+
+For the existing family VM, sign in as root and run these commands in the VM terminal. They use the repository at `/root/blockfield` and the installed `blockfield` service:
 
 ```sh
-cd /root/blockfield
-systemctl stop blockfield
-git pull --ff-only
-npm ci
-npm run build
-systemctl start blockfield
+cd /root/blockfield &&
+systemctl stop blockfield &&
+git pull --ff-only &&
+npm ci &&
+npm run build &&
+systemctl start blockfield &&
 systemctl status blockfield --no-pager -l
 ```
 
-Use `systemctl stop blockfield` to stop it, and `systemctl restart blockfield` to restart it. Do not also run `npm start` while the service is using port 6200. If the Node executable path changes, update `ExecStart`, run `systemctl daemon-reload`, then restart the service.
+The `&&` chain stops at the first failed command. If pulling, installing, or building fails after the service has stopped, it stays stopped. Fix the reported error before continuing with the remaining steps. The production build is required for the new browser interface to appear.
+
+Confirm that the service reports **active (running)**. You can check the installed commit and server health with:
+
+```sh
+git log -1 --oneline
+curl -fsS http://127.0.0.1:6200/healthz
+```
+
+Use the configured port if it differs from 6200. The health response should include `"ok": true`. If startup fails, inspect the logs with:
+
+```sh
+journalctl -u blockfield -n 50 --no-pager
+```
+
+After updating, refresh each player's game tab. Keep browser website data: private worlds and multiplayer guest identity are stored there.
+
+Updating the application preserves the configured `DATA_DIR`, saved worlds, and server inventories. Existing worlds keep their saved game mode. The VM's settings remain in `/etc/systemd/system/blockfield.service`; see [Set the game mode on the VM](#set-the-game-mode-on-the-vm). Run `systemctl daemon-reload` when that service file changes; a normal code update does not require it.
 
 ## Saves, backups, and settings
 

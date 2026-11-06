@@ -49,6 +49,8 @@ The host saves shared worlds to `data/world.json` next to `server.js`, with the 
 
 ## Host on a Linux VM
 
+For routine updates on the existing `/root/blockfield` VM, follow [Update the Linux VM](docs/setup.md#update-the-linux-vm). It covers stopping the service, pulling changes, installing dependencies, rebuilding, restarting, and checking health while preserving saved worlds and inventories.
+
 Build a portable package with `npm run package:server`. Copy `release/blockfield-server.tar.gz` to the VM, extract it, run `npm ci --omit=dev`, then `npm start`. The same package runs on your Mac. Use Node.js 24 LTS or Node.js 22.12+.
 
 [Linux deployment instructions](deploy/LINUX.md) include the exact commands, world name/seed configuration, a systemd service, and an optional Docker Compose setup. The server needs only Node.js and a reachable TCP port; rendering and terrain meshing happen in players' browsers.
