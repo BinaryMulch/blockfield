@@ -1,12 +1,20 @@
 export const FPS_LIMITS = [30, 60, 120];
 export const RESOLUTION_SCALES = [0.5, 0.75, 1];
+export const FOG_LEVELS = ['light', 'normal', 'dense', 'off'];
 const STORAGE_KEY = 'blockfield-graphics';
 
+export function fogDistances(level, cameraFar = 100) {
+  // The nearest edge of the rendered three-chunk radius is 48 blocks away.
+  // Keep fog within that edge; Off places it beyond the camera's visible range.
+  return { light: [36, 48], normal: [22, 46], dense: [12, 36], off: [cameraFar, cameraFar + 1] }[level] || [36, 48];
+}
+
 export function graphicsSettings(value, mobile = false) {
-  const defaults = { version: 1, fps: mobile ? 30 : 60, resolution: mobile ? 0.75 : 1 };
+  const defaults = { version: 1, fps: mobile ? 30 : 60, resolution: mobile ? 0.75 : 1, fog: 'light' };
   if (!value || value.version !== 1) return defaults;
   return { version: 1, fps: FPS_LIMITS.includes(value.fps) ? value.fps : defaults.fps,
-    resolution: RESOLUTION_SCALES.includes(value.resolution) ? value.resolution : defaults.resolution };
+    resolution: RESOLUTION_SCALES.includes(value.resolution) ? value.resolution : defaults.resolution,
+    fog: FOG_LEVELS.includes(value.fog) ? value.fog : defaults.fog };
 }
 
 export function renderPixelRatio(deviceRatio, resolution) {
@@ -29,12 +37,14 @@ export class FrameLimiter {
 }
 
 export class GraphicsSettings {
-  constructor(renderer) {
+  constructor(renderer, fog) {
     this.renderer = renderer;
+    this.fog = fog;
     this.mobile = window.matchMedia('(pointer: coarse)').matches;
     this.note = document.querySelector('#graphics-note');
     this.fpsSelect = document.querySelector('#fps-limit');
     this.resolutionSelect = document.querySelector('#render-resolution');
+    this.fogSelect = document.querySelector('#fog-level');
     let saved, available = true;
     try { saved = localStorage.getItem(STORAGE_KEY); } catch { available = false; }
     try { saved = JSON.parse(saved); } catch { saved = null; }
@@ -42,9 +52,12 @@ export class GraphicsSettings {
     this.limiter = new FrameLimiter(this.value.fps);
     this.fpsSelect.value = String(this.value.fps);
     this.resolutionSelect.value = String(this.value.resolution);
+    this.fogSelect.value = this.value.fog;
+    this.applyFog();
     if (!available) this.note.textContent = 'Settings apply for this visit; browser settings storage is unavailable.';
     const change = () => {
-      this.value = graphicsSettings({ version: 1, fps: Number(this.fpsSelect.value), resolution: Number(this.resolutionSelect.value) }, this.mobile);
+      this.value = graphicsSettings({ version: 1, fps: Number(this.fpsSelect.value), resolution: Number(this.resolutionSelect.value), fog: this.fogSelect.value }, this.mobile);
+      this.applyFog();
       this.limiter.setFPS(this.value.fps); this.resize();
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(this.value));
@@ -54,7 +67,11 @@ export class GraphicsSettings {
     };
     this.fpsSelect.addEventListener('change', change);
     this.resolutionSelect.addEventListener('change', change);
+    this.fogSelect.addEventListener('change', change);
     this.resize();
+  }
+  applyFog() {
+    [this.fog.near, this.fog.far] = fogDistances(this.value.fog);
   }
   resize() {
     const ratio = renderPixelRatio(window.devicePixelRatio, this.value.resolution);
@@ -63,7 +80,7 @@ export class GraphicsSettings {
     this.limiter.reset();
   }
   snapshot() {
-    return { fpsLimit: this.value.fps, resolutionScale: this.value.resolution, pixelRatio: this.renderer.getPixelRatio(),
+    return { fpsLimit: this.value.fps, resolutionScale: this.value.resolution, fog: this.value.fog, pixelRatio: this.renderer.getPixelRatio(),
       bufferWidth: this.renderer.domElement.width, bufferHeight: this.renderer.domElement.height };
   }
 }

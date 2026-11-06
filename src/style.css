@@ -79,12 +79,12 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
 #save-status { flex: 1; min-width: 100px; }
 #save-status[data-state='error'] { color: #9b3a21; flex-basis: 100%; }
 .leave-button { margin: 12px 0 0 12px; border: 0; background: transparent; color: inherit; font-size: 11px; text-decoration: underline; }
-.coordinates { position: fixed; left: 35px; top: 67px; color: #294f3e; font-size: 10px; pointer-events: none; }
+.coordinates { position: fixed; left: max(16px, env(safe-area-inset-left)); top: calc(16px + env(safe-area-inset-top)); z-index: 2; padding: 7px 10px; border-radius: 5px; background: #132b25c9; color: #eff3e4; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; pointer-events: none; display: none; }
+.playing .coordinates { display: block; }
 .night .coordinates { color: #eff3e4; }
 .mode-indicator { top: 91px; }
 @media (max-width: 600px) {
   .world-chooser { grid-template-columns: 1fr; }
-  .coordinates { left: 20px; top: 58px; }
   .mode-indicator { top: 82px; }
 }
 .hud { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); text-align: center; z-index: 2; }
@@ -228,7 +228,6 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
 .touch-mode .brand { top: calc(20px + env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left)); }
 .touch-mode .sound-toggle { top: calc(17px + env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); }
 .touch-mode .time-toggle { top: calc(59px + env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); }
-.touch-mode .coordinates { top: calc(58px + env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left)); }
 .touch-mode .performance-toggle { top: calc(96px + env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left)); }
 .touch-mode .performance-panel { top: calc(138px + env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left)); max-height: calc(100dvh - 280px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); }
 .touch-mode.playing .hud { pointer-events: auto; }
@@ -258,7 +257,6 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
   .touch-mode .time-toggle { top: 10px; right: calc(125px + env(safe-area-inset-right)); }
   .touch-mode .sound-toggle { top: 10px; }
   .touch-mode .performance-toggle { top: 49px; }
-  .touch-mode .coordinates { top: 48px; left: calc(155px + env(safe-area-inset-left)); }
   .touch-mode .mode-indicator { top: 49px; left: calc(300px + env(safe-area-inset-left)); }
   .touch-pause { top: 49px; }
   .touch-stick { width: 96px; height: 96px; bottom: calc(105px + env(safe-area-inset-bottom)); }

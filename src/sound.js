@@ -26,6 +26,16 @@ const ACTIONS = {
   swim: { duration: 0.22, volume: 0.1, pitch: 0.6, seed: 7 },
 };
 
+export const SOUND_DISTANCE = 32;
+
+// Keep nearby interactions clear, then fade to silence in every direction.
+export function soundGain(source, listener) {
+  if (!source || !listener) return 0;
+  const distance = Math.hypot(source.x - listener.x, source.y - listener.y, source.z - listener.z);
+  if (!Number.isFinite(distance) || distance >= SOUND_DISTANCE) return 0;
+  return Math.min(1, (SOUND_DISTANCE - distance) / (SOUND_DISTANCE - 2)) ** 2;
+}
+
 // Short, repeatable PCM effects: filtered crunch plus a material-specific impact.
 export function synthesizeSound(block, action, sampleRate, variant = 0) {
   block = isFlower(block) ? RED_FLOWER : buildBlock(block);
@@ -143,9 +153,13 @@ export class GameSounds {
     else this.stop();
   }
 
-  play(block, action) {
+  playAt(block, action, source, listener) {
+    this.play(block, action, soundGain(source, listener));
+  }
+
+  play(block, action, volume = 1) {
     block = isFlower(block) ? RED_FLOWER : buildBlock(block);
-    if (!this.enabled || !this.master || this.context?.state !== 'running' || !MATERIALS[block] || !ACTIONS[action]) return;
+    if (!this.enabled || !this.master || this.context?.state !== 'running' || !MATERIALS[block] || !ACTIONS[action] || !Number.isFinite(volume) || volume <= 0) return;
     const variant = this.nextVariant++ % 3;
     const key = `${block}:${action}:${variant}`;
     let buffer = this.buffers.get(key);
@@ -157,9 +171,13 @@ export class GameSounds {
     }
     const source = this.context.createBufferSource();
     source.buffer = buffer;
-    source.connect(this.master);
+    const gain = this.context.createGain();
+    gain.gain.value = Math.min(1, volume);
+    source.connect(gain);
+    gain.connect(this.master);
     source.onended = () => {
       source.disconnect();
+      gain.disconnect();
       this.active.delete(source);
     };
     this.active.add(source);

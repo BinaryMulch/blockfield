@@ -1,13 +1,60 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { graphicsSettings, renderPixelRatio, FrameLimiter } from '../src/graphics.js';
+import { graphicsSettings, renderPixelRatio, FrameLimiter, GraphicsSettings, fogDistances, FOG_LEVELS } from '../src/graphics.js';
 
 test('graphics defaults favor lower rendering work on mobile and validate saved values', () => {
-  assert.deepEqual(graphicsSettings(null), { version: 1, fps: 60, resolution: 1 });
-  assert.deepEqual(graphicsSettings(null, true), { version: 1, fps: 30, resolution: 0.75 });
-  assert.deepEqual(graphicsSettings({ version: 1, fps: 120, resolution: 0.5 }, true), { version: 1, fps: 120, resolution: 0.5 });
+  assert.deepEqual(graphicsSettings(null), { version: 1, fps: 60, resolution: 1, fog: 'light' });
+  assert.deepEqual(graphicsSettings(null, true), { version: 1, fps: 30, resolution: 0.75, fog: 'light' });
+  assert.deepEqual(graphicsSettings({ version: 1, fps: 120, resolution: 0.5 }, true), { version: 1, fps: 120, resolution: 0.5, fog: 'light' });
   assert.deepEqual(graphicsSettings({ version: 1, fps: '120', resolution: Infinity }), graphicsSettings(null));
   assert.deepEqual(graphicsSettings({ version: 2, fps: 120, resolution: 0.5 }), graphicsSettings(null));
+});
+
+test('fog settings preserve old preferences and stay inside rendered terrain unless disabled', () => {
+  for (const fog of FOG_LEVELS) {
+    assert.equal(graphicsSettings({ version: 1, fog }).fog, fog);
+    const [near, far] = fogDistances(fog);
+    assert.ok(near < far);
+    if (fog !== 'off') assert.ok(far <= 48);
+    else assert.ok(near >= 100);
+  }
+  assert.equal(graphicsSettings({ version: 1, fog: 'invalid' }).fog, 'light');
+  assert.ok(fogDistances('light')[0] > fogDistances('normal')[0]);
+  assert.deepEqual(fogDistances('off', 150), [150, 151]);
+});
+
+test('fog loads from browser storage, changes immediately, and persists with other graphics settings', t => {
+  const elements = new Map(['#graphics-note', '#fps-limit', '#render-resolution', '#fog-level'].map(id => [id, {
+    value: '', addEventListener(event, handler) { this.change = handler; },
+  }]));
+  let saved = JSON.stringify({ version: 1, fps: 120, resolution: 0.5, fog: 'dense' });
+  const globals = {
+    window: { matchMedia: () => ({ matches: false }), devicePixelRatio: 1, innerWidth: 800, innerHeight: 600 },
+    document: { querySelector: id => elements.get(id) },
+    localStorage: { getItem: () => saved, setItem(key, value) { saved = value; } },
+  };
+  for (const [key, value] of Object.entries(globals)) {
+    const original = Object.getOwnPropertyDescriptor(globalThis, key);
+    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+    t.after(() => { if (original) Object.defineProperty(globalThis, key, original); else delete globalThis[key]; });
+  }
+  const renderer = { ratio: 1, domElement: {}, getPixelRatio() { return this.ratio; },
+    setPixelRatio(ratio) { this.ratio = ratio; }, setSize() {} };
+  const color = {}, fog = { color };
+  const graphics = new GraphicsSettings(renderer, fog);
+  assert.deepEqual([fog.near, fog.far], fogDistances('dense'));
+  assert.equal(elements.get('#fog-level').value, 'dense');
+  elements.get('#fog-level').value = 'off';
+  elements.get('#fog-level').change();
+  assert.deepEqual([fog.near, fog.far], fogDistances('off'));
+  assert.equal(fog.color, color, 'sky can keep updating the existing fog color');
+  assert.deepEqual(JSON.parse(saved), { version: 1, fps: 120, resolution: 0.5, fog: 'off' });
+  assert.equal(graphics.snapshot().fog, 'off');
+  localStorage.setItem = () => { throw new Error('Storage unavailable'); };
+  elements.get('#fog-level').value = 'light';
+  elements.get('#fog-level').change();
+  assert.deepEqual([fog.near, fog.far], fogDistances('light'));
+  assert.match(elements.get('#graphics-note').textContent, /Applied for this visit/);
 });
 
 test('resolution scales drawing dimensions and retains the existing device-ratio ceiling', () => {

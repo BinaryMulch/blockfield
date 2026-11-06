@@ -1,7 +1,58 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { World, SIZE, GRASS, DIRT, STONE, WOOD, LEAVES, SAND, WATER, PLANKS, BRICKS, GLASS, DOOR, LANTERN, SLAB, RED_FLOWER, doorBlock, stepPlayer } from '../src/world.js';
-import { FootstepTracker, WaterSoundTracker, GameSounds, synthesizeSound } from '../src/sound.js';
+import { FootstepTracker, WaterSoundTracker, GameSounds, synthesizeSound, soundGain, SOUND_DISTANCE } from '../src/sound.js';
+
+test('positional sounds fade with three-dimensional distance and stop at 32 blocks', () => {
+  const listener = { x: 100, y: 10, z: 200 };
+  assert.equal(soundGain(listener, listener), 1);
+  assert.equal(soundGain({ ...listener, x: 102 }, listener), 1);
+  const halfway = soundGain({ ...listener, x: 117 }, listener);
+  assert.equal(halfway, 0.25);
+  assert.equal(soundGain({ ...listener, y: 27 }, listener), halfway);
+  assert.equal(soundGain({ ...listener, z: 183 }, listener), halfway);
+  assert.equal(soundGain({ ...listener, x: 100 + SOUND_DISTANCE }, listener), 0);
+  assert.equal(soundGain({ ...listener, y: 1000 }, listener), 0);
+  assert.equal(soundGain({ x: NaN, y: 10, z: 200 }, listener), 0);
+  assert.equal(soundGain(null, listener), 0);
+});
+
+test('inaudible edits allocate no audio and audible effects clean up their gain nodes', () => {
+  const sounds = new GameSounds(), sources = [], gains = [];
+  sounds.master = { gain: { value: 0.45 } };
+  sounds.context = {
+    state: 'running', sampleRate: 44100,
+    createBuffer() { return { copyToChannel() {} }; },
+    createBufferSource() {
+      const source = { connect(target) { this.target = target; }, start() { this.started = true; },
+        stop() { this.onended(); }, disconnect() { this.disconnected = true; } };
+      sources.push(source); return source;
+    },
+    createGain() {
+      const gain = { gain: {}, connect(target) { this.target = target; }, disconnect() { this.disconnected = true; } };
+      gains.push(gain); return gain;
+    },
+  };
+  const listener = { x: 0, y: 0, z: 0 };
+  sounds.playAt(STONE, 'break', { ...listener, x: 32 }, listener);
+  sounds.playAt(DOOR, 'open', { ...listener, y: 50 }, listener);
+  assert.equal(sources.length, 0);
+  assert.equal(sounds.buffers.size, 0);
+  sounds.playAt(DOOR, 'close', { ...listener, x: 17 }, listener);
+  assert.equal(sources[0].started, true);
+  assert.equal(sources[0].target, gains[0]);
+  assert.equal(gains[0].target, sounds.master);
+  assert.equal(gains[0].gain.value, 0.25);
+  sounds.play(WATER, 'swim');
+  assert.equal(gains[1].gain.value, 1, 'local movement sounds retain their volume');
+  sounds.stop();
+  assert.equal(sounds.active.size, 0);
+  assert.ok(sources.every(source => source.disconnected));
+  assert.ok(gains.every(gain => gain.disconnected));
+  sounds.setEnabled(false);
+  sounds.playAt(STONE, 'break', listener, listener);
+  assert.equal(sources.length, 2);
+});
 
 test('all material sounds are distinct, bounded, repeatable, and fade out', () => {
   for (const action of ['step', 'place', 'break']) {

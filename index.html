@@ -85,6 +85,8 @@
         <fieldset class="graphics-settings"><legend>Graphics</legend>
           <label for="fps-limit">FPS limit<select id="fps-limit"><option value="30">30 FPS</option><option value="60">60 FPS</option><option value="120">120 FPS</option></select></label>
           <label for="render-resolution">Render resolution<select id="render-resolution"><option value="0.5">50% · lighter</option><option value="0.75">75% · balanced</option><option value="1">100% · sharper</option></select></label>
+          <label for="fog-level">Fog<select id="fog-level" aria-describedby="fog-note"><option value="light">Light · clearer distance</option><option value="normal">Normal</option><option value="dense">Dense</option><option value="off">Off</option></select></label>
+          <p id="fog-note">Fog changes visibility only; terrain loading stays the same. Off can expose the edge of loaded terrain.</p>
           <p id="graphics-note">Saved in this browser. Lower resolution draws fewer pixels.</p>
         </fieldset>
           <fieldset class="general-settings"><legend>Sound &amp; world</legend><button id="time-toggle" class="time-toggle" type="button" aria-label="Hold time of day" aria-pressed="false" title="T to hold or resume time. N to skip to the next time of day."><span id="time-label">Day · cycling</span> <kbd>T</kbd></button><button id="sound-toggle" class="sound-toggle" type="button" aria-label="Mute sound" aria-pressed="false">Sound on <kbd>M</kbd></button><button id="performance-toggle" class="performance-toggle" type="button" aria-controls="performance-panel" aria-pressed="false">Performance <kbd>P</kbd></button><p>Time controls apply to everyone in a shared world.</p></fieldset>

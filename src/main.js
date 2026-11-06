@@ -41,7 +41,6 @@ function start() {
   const screens = new MenuScreens(menu);
   const canvas = document.querySelector('#game');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  const graphics = new GraphicsSettings(renderer);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -51,7 +50,8 @@ function start() {
   renderer.info.autoReset = false;
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#bfdce5');
-  scene.fog = new THREE.Fog('#bfdce5', 22, 46);
+  scene.fog = new THREE.Fog('#bfdce5');
+  const graphics = new GraphicsSettings(renderer, scene.fog);
 
   const sky = new WorldSky(scene, renderer);
   sky.externalClock = true;
@@ -630,12 +630,14 @@ function start() {
 
   function finishEdit(change, normal, changes = [change]) {
     const { from, to } = change;
+    const position = { x: change.x + 0.5, y: change.y + 0.5, z: change.z + 0.5 };
+    const listener = { x: player.x, y: player.y + EYE_HEIGHT, z: player.z };
     if (changes.every(c => isDoor(c.from) && isDoor(c.to))) {
-      if (playing) sounds.play(DOOR, doorState(to).open ? 'open' : 'close');
+      if (playing) sounds.playAt(DOOR, doorState(to).open ? 'open' : 'close', position, listener);
     }
     else {
       const placing = isSolid(to) || isFlower(to);
-      if (playing) sounds.play(placing ? to : from, placing ? 'place' : 'break');
+      if (playing) sounds.playAt(placing ? to : from, placing ? 'place' : 'break', position, listener);
       for (const c of changes) if ((!isSolid(c.to) && !isFlower(c.to)) && (isSolid(c.from) || isFlower(c.from))) particles.burst(c.x, c.y, c.z, c.from, normal);
     }
     rebuildMeshes(changes);
@@ -713,7 +715,7 @@ function start() {
     else if (history.ready && connection.textContent === 'Preparing nearby terrain…') setConnectionStatus(history.mode === 'single' ? 'Single player · Private world' : '');
     const coordinates = document.querySelector('#coordinates');
     coordinates.hidden = !history.mode;
-    if (history.mode) coordinates.textContent = `X ${Math.floor(player.x)} · Z ${Math.floor(player.z)}`;
+    if (history.mode) coordinates.textContent = `X ${Math.floor(player.x)} · Y ${Math.floor(player.y)} · Z ${Math.floor(player.z)}`;
     avatarShadowElapsed += elapsed;
     if (otherPlayers.update(elapsed) && avatarShadowElapsed >= 0.2) {
       renderer.shadowMap.needsUpdate = true;
