@@ -12,7 +12,7 @@ const staging = await mkdtemp(path.join(tmpdir(), 'blockfield-release-'));
 try {
   const directory = path.join(staging, 'blockfield-server');
   await mkdir(directory, { recursive: true }); await mkdir('release', { recursive: true });
-  for (const entry of ['dist', 'src', 'server', 'server.js', 'package.json', 'package-lock.json', 'README.md', 'deploy']) await cp(entry, path.join(directory, entry), { recursive: true });
+  for (const entry of ['dist', 'src', 'server', 'server.js', 'package.json', 'package-lock.json', 'README.md', 'docs', 'deploy']) await cp(entry, path.join(directory, entry), { recursive: true });
   const temporary = path.resolve('release/blockfield-server.tar.gz.tmp');
   run('tar', ['-czf', temporary, '-C', staging, 'blockfield-server']);
   await rename(temporary, path.resolve('release/blockfield-server.tar.gz'));

@@ -2,6 +2,8 @@
 
 A voxel sandbox with private single-player worlds and up to eight players on a shared server. Explore seeded 512 × 512 worlds, streamed in 16 × 16 chunks. Built with JavaScript, Three.js, Node.js, and Vite. Play in Safari or Chrome; host on macOS or Linux.
 
+**Quick docs:** [Current features and controls](docs/features.md) · [Setup, updates, saves, and Linux startup](docs/setup.md).
+
 ## Play on your Mac
 
 Double-click **Play Blockfield.command** in Finder. It starts the local server and opens the game in your default browser. Keep its Terminal window open while playing; press **Control+C** there to stop the server.
@@ -80,7 +82,7 @@ To open the game on your phone while the Mac hosts it, use the Mac's Wi-Fi addre
 | Break the highlighted block | Left-click |
 | Place a block against the highlighted face | F, right-click, or Control-click |
 | Select a hotbar slot | 1–9, or click its slot |
-| Open / return from creative inventory | I, or Inventory in the pause menu |
+| Open / return from inventory | I, or Inventory in the pause menu |
 | Choose a door | 0 |
 | Choose a lantern | L |
 | Choose a wooden slab | B |

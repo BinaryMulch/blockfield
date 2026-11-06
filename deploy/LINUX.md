@@ -2,6 +2,8 @@
 
 The same Node.js server runs on both platforms. It serves the browser game and multiplayer WebSocket connection on one TCP port, **6200** by default. Players can create a private browser world or join the host's shared world from the start screen.
 
+For the simple Git-pull workflow and the current root/nvm VM service, start with the [concise setup guide](../docs/setup.md).
+
 ## Prebuilt server package (no build tools needed on the VM)
 
 On your Mac, from the project folder:
