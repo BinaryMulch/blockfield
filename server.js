@@ -40,6 +40,12 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
   let commandQueue = Promise.resolve();
   const metrics = new ServerMetrics();
   const peers = new Map();
+  let lastTick = performance.now();
+  const advanceClock = () => {
+    const now = performance.now();
+    if (!saving && !saveFailure) room.advance(Math.min((now - lastTick) / 1000, 1));
+    lastTick = now;
+  };
   const server = http.createServer(async (request, response) => {
     try {
       const url = new URL(request.url, 'http://localhost');
@@ -79,7 +85,10 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
     socket.send(JSON.stringify(message));
   };
   const broadcast = message => { for (const [socket, peer] of peers) if (peer.id) send(socket, message); };
-  const playerState = () => ({ type: 'players', players: room.playerList(), clock: room.clockState() });
+  const broadcastPlayerState = () => {
+    const state = { type: 'players', players: room.playerList(), clock: room.clockState() };
+    for (const [socket, peer] of peers) if (peer.id) send(socket, { ...state, shelter: room.shelterSnapshot(peer.id) });
+  };
   const failedSave = error => {
     saveFailure = error;
     console.error(`World saving failed; further edits are stopped to protect the last good save: ${error.message}`);
@@ -94,9 +103,32 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
   const enqueue = task => {
     commandQueue = commandQueue.then(async () => {
       if (saveFailure) return;
+      advanceClock();
       saving = true;
-      try { await task(); } catch (error) { failedSave(error); } finally { saving = false; }
+      try { await task(); } catch (error) { failedSave(error); } finally { lastTick = performance.now(); saving = false; }
     });
+  };
+  const broadcastEdits = (changes, by, method) => {
+    const groups = new Map();
+    for (const c of changes) {
+      const key = chunkKey(Math.floor(c.x / CHUNK_SIZE), Math.floor(c.z / CHUNK_SIZE));
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(c);
+    }
+    for (const [other, target] of peers) {
+      if (!target.id) continue;
+      const updates = [];
+      for (const [key, changes] of groups) {
+        if (!target.sent.has(key)) continue;
+        const revision = room.chunkRevisions.get(key);
+        if (target.sent.get(key) !== revision - 1) {
+          const [cx, cz] = key.split(',').map(Number);
+          send(other, room.chunkSnapshot(cx, cz));
+        } else updates.push({ key, previousRevision: revision - 1, revision, changes });
+        target.sent.set(key, revision);
+      }
+      if (updates.length) send(other, { type: 'edit', by, method, updates, revision: room.revision });
+    }
   };
   const streamPeer = (socket, peer, limit = 4) => {
     const player = room.players.get(peer.id);
@@ -155,7 +187,7 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
           if (player.inventory) await checkpoint();
           send(socket, { ...room.snapshot(player), urls: lanURLs(server.address().port), persistence: !!persistence });
           streamPeer(socket, peer, 9);
-          broadcast(playerState());
+          broadcastPlayerState();
         });
         return;
       }
@@ -165,42 +197,32 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
       peer.lastRequest = message.requestId;
       enqueue(async () => {
       const result = room.command(peer.id, message);
-      if (result.ok && (result.changes || result.type === 'clock' || result.type === 'supplies' || result.type === 'drops')) await checkpoint();
+      if (result.ok && (result.changes || result.type === 'clock' || result.type === 'supplies' || ['drops', 'storage', 'construction', 'upkeep'].includes(result.type))) await checkpoint();
       if (result.ok && room.players.get(peer.id)?.inventory) send(socket, { type: 'supplies', inventory: room.players.get(peer.id).inventory.snapshot() });
+      if (result.ok && result.type === 'storage') broadcast({ type: 'storage', storage: result.storage });
+      if (result.ok && result.type === 'upkeep' && result.info) broadcast({ type: 'upkeep', info: result.info });
+      if (result.ok && result.damage) broadcast({ type: 'construction', damage: result.damage });
       if (result.ok && result.type === 'drops') broadcast({ type: 'drops', drops: room.drops.snapshot() });
       if (result.ok && result.changes) {
-        const groups = new Map();
-        for (const c of result.changes) {
-          const key = chunkKey(Math.floor(c.x / CHUNK_SIZE), Math.floor(c.z / CHUNK_SIZE));
-          if (!groups.has(key)) groups.set(key, []);
-          groups.get(key).push(c);
-        }
-        for (const [other, target] of peers) {
-          if (!target.id) continue;
-          const updates = [];
-          for (const [key, changes] of groups) {
-            if (!target.sent.has(key)) continue;
-            const revision = room.chunkRevisions.get(key);
-            if (target.sent.get(key) !== revision - 1) {
-              const [cx, cz] = key.split(',').map(Number);
-              send(other, room.chunkSnapshot(cx, cz));
-            } else updates.push({ key, previousRevision: revision - 1, revision, changes });
-            target.sent.set(key, revision);
-          }
-          if (updates.length) send(other, { type: 'edit', by: peer.id, method: message.method, updates, revision: room.revision });
-        }
+        broadcastEdits(result.changes, peer.id, message.method);
         send(socket, { type: 'result', requestId: message.requestId, ok: true });
       } else {
         if (result.ok && result.type === 'clock') broadcast({ type: 'clock', clock: room.clockState() });
-        if (result.ok && result.type === 'players') broadcast(playerState());
-        send(socket, { type: 'result', requestId: message.requestId, ok: result.ok, reason: result.reason, moved: result.moved, swapped: result.swapped });
+        if (result.ok && result.type === 'players') broadcastPlayerState();
+        send(socket, { type: 'result', requestId: message.requestId, ok: result.ok, reason: result.reason, moved: result.moved, swapped: result.swapped, storage: result.storage, remaining: result.remaining, info: result.info, message: result.message });
       }
       });
     });
     socket.on('close', () => {
       clearTimeout(greeting);
       peers.delete(socket);
-      if (peer.id && room.leave(peer.id) && !closing) broadcast(playerState());
+      if (!closing) advanceClock();
+      if (peer.id && room.leave(peer.id) && !closing) {
+        broadcastPlayerState();
+        // Persist the exact paused state, rather than waiting for an autosave
+        // that intentionally stops when the last connected player leaves.
+        if (!room.players.size) enqueue(checkpoint);
+      }
     });
   });
 
@@ -217,13 +239,22 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
     await persistence?.close();
     throw error;
   }
-  let lastTick = performance.now();
+  let upkeepQueued = false;
   const tick = setInterval(() => {
     const now = performance.now();
-    if (saving || saveFailure) { lastTick = now; return; }
-    room.advance(Math.min((now - lastTick) / 1000, 1));
-    lastTick = now;
-    if (room.players.size) broadcast(playerState());
+    advanceClock();
+    if (saving || saveFailure) return;
+    if (room.players.size && !upkeepQueued && room.upkeep.hasDue()) {
+      upkeepQueued = true;
+      enqueue(async () => {
+        try {
+          if (!room.players.size) return;
+          const changes = room.processUpkeep();
+          if (changes.length) { await checkpoint(); broadcastEdits(changes, 'world', 'growth'); }
+        } finally { upkeepQueued = false; }
+      });
+    }
+    if (room.players.size) broadcastPlayerState();
     for (const [socket, peer] of peers) if (peer.id) streamPeer(socket, peer);
     room.world.evict?.([...room.players.values()].map(player => player.pose), 5);
     metrics.tick.add(performance.now() - now);
@@ -243,6 +274,7 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
     get urls() { return lanURLs(server.address().port); },
     async close() {
       if (closing) return;
+      advanceClock();
       closing = true;
       clearInterval(tick); clearInterval(heartbeat); clearInterval(autosave);
       metrics.close();

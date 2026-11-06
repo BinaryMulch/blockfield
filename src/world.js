@@ -17,40 +17,64 @@ export const UPPER_SLAB = 29;
 export const RED_FLOWER = 30;
 export const YELLOW_FLOWER = 31;
 export const DAISY = 32;
+export const WARD_LANTERN = 33;
+export const CONCRETE = 34;
+export const REINFORCED_PANEL = 35;
+export const STORAGE_CABINET = 36;
+export const SECURITY_DOOR = 37; // States occupy IDs 37–52.
+// Keep the original cabinet ID facing +Z. Other orientations use IDs 53–55.
+const CABINET_STATES = Object.freeze([STORAGE_CABINET, 53, 54, 55]);
+export const SAPLING = 56;
+export const YOUNG_SAPLING = 57;
+export const TALL_SAPLING = 58;
+export const SALVAGE_CRATE = 59;
+// Inventory-only items never enter terrain data.
+export const SCRAP = 60;
+export const BIOFUEL = 61;
+export const REPAIR_TOOL = 62;
 export const FLOWER_TYPES = [RED_FLOWER, YELLOW_FLOWER, DAISY];
 export const FLOWER_COLORS = {
   [RED_FLOWER]: { petals: 0xe8616c, center: 0xffcf68 },
   [YELLOW_FLOWER]: { petals: 0xffd65c, center: 0xb66c36 },
   [DAISY]: { petals: 0xfffae5, center: 0xf5b83b },
 };
-export const BUILD_BLOCKS = [GRASS, DIRT, STONE, WOOD, LEAVES, SAND, PLANKS, BRICKS, GLASS, DOOR, LANTERN, SLAB, RED_FLOWER];
-const BLOCK_TYPES = new Set([AIR, WATER, UPPER_SLAB, ...FLOWER_TYPES, ...BUILD_BLOCKS, ...Array.from({ length: 16 }, (_, i) => DOOR + i)]);
+export const BUILD_BLOCKS = [GRASS, DIRT, STONE, WOOD, LEAVES, SAND, PLANKS, BRICKS, GLASS, DOOR, LANTERN, WARD_LANTERN, SLAB, RED_FLOWER, CONCRETE, REINFORCED_PANEL, STORAGE_CABINET, SECURITY_DOOR];
+const BLOCK_TYPES = new Set([AIR, WATER, UPPER_SLAB, ...FLOWER_TYPES, ...BUILD_BLOCKS, ...CABINET_STATES, SAPLING, YOUNG_SAPLING, TALL_SAPLING, SALVAGE_CRATE, ...[DOOR, SECURITY_DOOR].flatMap(base => Array.from({ length: 16 }, (_, i) => base + i))]);
 export const SIZE = 64;
 export const HEIGHT = 24;
 const SPAWN_X = Math.floor(SIZE / 2);
 const SPAWN_Z = Math.floor(SIZE * 0.72);
 
 export function isSolid(block) {
-  return block !== AIR && block !== WATER && !isFlower(block);
+  return block !== AIR && block !== WATER && !isPlant(block);
 }
 
+export const isSapling = block => block >= SAPLING && block <= TALL_SAPLING && Number.isInteger(block);
+export const isPlant = block => isFlower(block) || isSapling(block);
 export const isFlower = block => FLOWER_TYPES.includes(block);
 export const isFlowerSoil = block => block === GRASS || block === DIRT;
 export const isBlock = block => BLOCK_TYPES.has(block);
-export const isDoor = block => Number.isInteger(block) && block >= DOOR && block < DOOR + 16;
+export const isDoor = block => Number.isInteger(block) && (block >= DOOR && block < DOOR + 16 || block >= SECURITY_DOOR && block < SECURITY_DOOR + 16);
+export const doorType = block => block >= SECURITY_DOOR && block < SECURITY_DOOR + 16 ? SECURITY_DOOR : DOOR;
 export const isSlab = block => block === SLAB || block === UPPER_SLAB;
-export const buildBlock = block => isDoor(block) ? DOOR : isSlab(block) ? SLAB : block;
-export const isOpaque = block => isSolid(block) && block !== GLASS && block !== LANTERN && !isDoor(block) && !isSlab(block);
+export const isLantern = block => block === LANTERN || block === WARD_LANTERN;
+export const isCabinet = block => CABINET_STATES.includes(block);
+export const cabinetFacing = block => CABINET_STATES.indexOf(block);
+// Front directions follow the door convention: +Z, -X, -Z, +X.
+export const cabinetBlock = facing => CABINET_STATES[(facing % 4 + 4) % 4];
+export const cabinetBlockFromYaw = yaw => cabinetBlock(Math.round(-yaw / (Math.PI / 2)));
+export const buildBlock = block => isDoor(block) ? doorType(block) : isSlab(block) ? SLAB : isCabinet(block) ? STORAGE_CABINET : isSapling(block) ? SAPLING : block;
+export const isOpaque = block => isSolid(block) && block !== GLASS && !isLantern(block) && !isDoor(block) && !isSlab(block);
 // Fixtures sit on a cell's upper surface, which lower slabs do not reach.
-export const isSupport = block => isSolid(block) && block !== LANTERN && block !== SLAB && !isDoor(block);
+export const isSupport = block => isSolid(block) && !isLantern(block) && block !== SLAB && !isDoor(block);
 
-export function doorBlock(facing, open = false, upper = false) {
-  return DOOR + ((facing % 4 + 4) % 4) * 2 + Number(open) + Number(upper) * 8;
+export function doorBlock(facing, open = false, upper = false, type = DOOR) {
+  return type + ((facing % 4 + 4) % 4) * 2 + Number(open) + Number(upper) * 8;
 }
 
 export function doorState(block) {
   if (!isDoor(block)) return null;
-  const state = block - DOOR;
+  const state = block - doorType(block);
   return { facing: Math.floor(state % 8 / 2), open: Boolean(state % 2), upper: state >= 8 };
 }
 
@@ -64,17 +88,17 @@ export function blockBounds(block, x, y, z) {
     if (side === 2) b.maxZ = z + 0.1875;
     if (side === 3) b.minX = x + 0.8125;
   }
-  if (block === LANTERN) {
+  if (isLantern(block)) {
     b.minX += 0.25; b.maxX -= 0.25;
     b.minZ += 0.25; b.maxZ -= 0.25;
     b.maxY = y + 0.92;
   }
   if (block === SLAB) b.maxY = y + 0.5;
   if (block === UPPER_SLAB) b.minY = y + 0.5;
-  if (isFlower(block)) {
+  if (isPlant(block)) {
     b.minX += 0.2; b.maxX -= 0.2;
     b.minZ += 0.2; b.maxZ -= 0.2;
-    b.maxY = y + 0.64;
+    b.maxY = y + (isSapling(block) ? .5 + (block - SAPLING) * .2 : .64);
   }
   return b;
 }
@@ -89,6 +113,13 @@ export function lanternParts(x, y, z) {
 }
 
 export function flowerParts(block, x, y, z) {
+  if (isSapling(block)) {
+    const stage = block - SAPLING, height = .5 + stage * .2, spread = .14 + stage * .06;
+    return [
+      { minX: x + .46, maxX: x + .54, minY: y, maxY: y + height, minZ: z + .46, maxZ: z + .54, color: 0x6c7564 },
+      { minX: x + .5 - spread, maxX: x + .5 + spread, minY: y + height * .4, maxY: y + height, minZ: z + .5 - spread, maxZ: z + .5 + spread, color: 0x639878 },
+    ];
+  }
   const { petals, center } = FLOWER_COLORS[block];
   const box = (minX, minY, minZ, maxX, maxY, maxZ, color) => ({ minX: x + minX, minY: y + minY, minZ: z + minZ, maxX: x + maxX, maxY: y + maxY, maxZ: z + maxZ, color });
   return [
@@ -118,6 +149,9 @@ function treeSeed(x, z) {
 
 export class World {
   constructor({ generate = true } = {}) {
+    this.serial = 0;
+    this.shelterRevisions = new Map();
+    this.wardChunks = new Map();
     this.blocks = new Uint8Array(SIZE * HEIGHT * SIZE);
     if (generate) this.generate();
   }
@@ -133,16 +167,41 @@ export class World {
 
   set(x, y, z, block) {
     if (!this.contains(x, y, z) || !BLOCK_TYPES.has(block)) return false;
+    if (this.get(x, y, z) === block) return true;
     this.blocks[x + SIZE * (z + SIZE * y)] = block;
+    this.serial++;
+    this.touchShelter(x, y, z, block);
     return true;
+  }
+
+  touchShelter(x, y, z, block) {
+    const cx = Math.floor(x / 16), cz = Math.floor(z / 16), section = `${cx},${Math.floor(y / 4)},${cz}`;
+    this.shelterRevisions.set(section, (this.shelterRevisions.get(section) || 0) + 1);
+    const chunk = `${cx},${cz}`, cell = x % 16 + 16 * (z % 16 + 16 * y);
+    if (block === WARD_LANTERN) {
+      if (!this.wardChunks.has(chunk)) this.wardChunks.set(chunk, new Map());
+      this.wardChunks.get(chunk).set(cell, { x, y, z });
+    } else {
+      const wards = this.wardChunks.get(chunk);
+      wards?.delete(cell);
+      if (wards?.size === 0) this.wardChunks.delete(chunk);
+    }
+  }
+
+  touchShelterChunk(cx, cz) {
+    for (let sy = 0; sy < HEIGHT / 4; sy++) {
+      const section = `${cx},${sy},${cz}`;
+      this.shelterRevisions.set(section, (this.shelterRevisions.get(section) || 0) + 1);
+    }
   }
 
   doorAt(x, y, z) {
     const state = doorState(this.get(x, y, z));
     if (!state) return null;
     const baseY = y - Number(state.upper);
-    const bottom = doorBlock(state.facing, state.open);
-    const top = doorBlock(state.facing, state.open, true);
+    const type = doorType(this.get(x, y, z));
+    const bottom = doorBlock(state.facing, state.open, false, type);
+    const top = doorBlock(state.facing, state.open, true, type);
     if (this.get(x, baseY, z) !== bottom || this.get(x, baseY + 1, z) !== top) return null;
     return { x, y: baseY, z, facing: state.facing, open: state.open, bottom, top };
   }
@@ -161,7 +220,7 @@ export class World {
   surface(x, z) {
     for (let y = HEIGHT - 1; y >= 0; y--) {
       const block = this.get(x, y, z);
-      if (block && !isFlower(block)) return blockBounds(block, x, y, z).maxY;
+      if (block && !isPlant(block)) return blockBounds(block, x, y, z).maxY;
     }
     return 0;
   }

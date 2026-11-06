@@ -24,7 +24,6 @@ export class TouchControls {
     this.stick = document.querySelector('#touch-stick');
     this.thumb = this.stick.querySelector('span');
     this.jump = this.root.querySelector('[data-touch="jump"]');
-    this.descend = this.root.querySelector('[data-touch="down"]');
     const coarse = window.matchMedia('(pointer: coarse)').matches;
     this.setMode(coarse || typeof canvas.requestPointerLock !== 'function' ? 'touch' : 'mouse');
     this.mode.addEventListener('change', () => { this.setMode(this.mode.value); this.onModeChange?.(); });
@@ -83,7 +82,6 @@ export class TouchControls {
     this.setActive(false);
   }
   setActive(active) { this.active = active && this.enabled; this.root.hidden = !this.active; if (!this.active) this.reset(); }
-  setFlying(flying) { this.jump.textContent = flying ? 'Up' : 'Jump'; this.jump.setAttribute('aria-label', flying ? 'Fly up' : 'Jump'); this.descend.hidden = !flying; this.root.querySelector('[data-touch="fly"]').setAttribute('aria-pressed', String(flying)); }
   move(event) {
     const bounds = this.stick.getBoundingClientRect(), axes = joystickAxes(event.clientX - bounds.left - bounds.width / 2, event.clientY - bounds.top - bounds.height / 2, bounds.width * 0.36);
     this.strafe = axes.strafe; this.forward = axes.forward;

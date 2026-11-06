@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
-import { HEIGHT, WATER, DOOR, LANTERN, SLAB, RED_FLOWER, FLOWER_TYPES, EYE_HEIGHT, isSolid, isDoor, isFlower, doorState, buildBlock, blockBounds, overlapsBlock, spawnPlayer, stepPlayer } from './world.js';
+import { HEIGHT, WATER, DOOR, LANTERN, WARD_LANTERN, SLAB, RED_FLOWER, FLOWER_TYPES, EYE_HEIGHT, SALVAGE_CRATE, REPAIR_TOOL, BIOFUEL, isBlock, isSapling, isPlant, isSolid, isDoor, isCabinet, isLantern, isFlower, doorState, buildBlock, blockBounds, overlapsBlock, spawnPlayer, stepPlayer } from './world.js';
 import { ChunkWorld } from './chunks.js';
 import { ChunkRenderer } from './chunk-renderer.js';
 import { createTextureAtlas, createLanternEmissiveMap } from './textures.js';
@@ -16,19 +16,25 @@ import { slabPlacement } from './slabs.js';
 import { PerformanceOverlay } from './performance.js';
 import { TouchControls } from './touch.js';
 import { GraphicsSettings } from './graphics.js';
-import { Inventory, CREATIVE_ITEMS, STACK_LIMIT, validInventory } from './inventory.js';
+import { Inventory, MATERIALS, STACK_LIMIT, validInventory } from './inventory.js';
 import { InventoryView } from './inventory-ui.js';
+import { StorageView } from './storage-ui.js';
+import { UpkeepView, upkeepFailure } from './upkeep-ui.js';
+import { strength } from './infrastructure.js';
+import { applyDamageMaterial } from './damage.js';
 import { MenuScreens } from './menu.js';
 import { HotbarScroll, disableUIFocus } from './input.js';
 import { DropRenderer } from './drop-renderer.js';
 import { PICKUP_RADIUS } from './drops.js';
+import { WardRenderer, shelterDescription, wardDescription } from './ward-renderer.js';
 import './style.css';
 
 const menu = document.querySelector('#menu');
 const play = document.querySelector('#play');
 const error = document.querySelector('#error');
-const BLOCK_NAMES = Object.fromEntries(CREATIVE_ITEMS.map(item => [item.id, item.name]));
+const BLOCK_NAMES = Object.fromEntries(MATERIALS.map(item => [item.id, item.name]));
 BLOCK_NAMES[WATER] = 'Water';
+BLOCK_NAMES[SALVAGE_CRATE] = 'Salvage supply point';
 disableUIFocus(document);
 
 try {
@@ -52,6 +58,7 @@ function start() {
   renderer.shadowMap.needsUpdate = true;
   renderer.info.autoReset = false;
   const scene = new THREE.Scene();
+  const wardRenderer = new WardRenderer(scene);
   scene.background = new THREE.Color('#bfdce5');
   scene.fog = new THREE.Fog('#bfdce5');
   const graphics = new GraphicsSettings(renderer, scene.fog);
@@ -87,7 +94,7 @@ function start() {
     solid: new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true, shadowSide: THREE.FrontSide }),
     water: new THREE.MeshPhongMaterial({ map: atlas, transparent: true, opacity: 0.68, depthWrite: false, shininess: 80, specular: '#42626c', side: THREE.DoubleSide }),
     glass: new THREE.MeshPhongMaterial({ map: atlas, transparent: true, opacity: 0.75, depthWrite: false, shininess: 90, specular: '#4c7382', side: THREE.DoubleSide }),
-    lantern: new THREE.MeshLambertMaterial({ map: atlas, emissive: '#ffc170', emissiveMap: createLanternEmissiveMap(), emissiveIntensity: 1 }),
+    lantern: new THREE.MeshLambertMaterial({ map: atlas, emissive: '#ffffff', emissiveMap: createLanternEmissiveMap(), emissiveIntensity: 1 }),
     flowers: new THREE.MeshLambertMaterial({ vertexColors: true }),
   }, () => { renderer.shadowMap.needsUpdate = true; }, cause => {
     error.hidden = false; error.textContent = cause.message;
@@ -97,6 +104,8 @@ function start() {
     // Reach the air beside thin doors/slabs, without crossing a full voxel wall.
     lanternLighting.applyMaterial(material, { surfaceOffset: mode === 'solid' ? 0.99 : 0.02 });
   }
+
+  applyDamageMaterial(chunkRenderer.materials.solid);
 
   const outlineBox = new THREE.BoxGeometry(1, 1, 1);
   const outline = new THREE.LineSegments(new THREE.EdgesGeometry(outlineBox), new THREE.LineBasicMaterial({ color: '#fff9dd' }));
@@ -108,7 +117,6 @@ function start() {
   let playing = false;
   let inventoryOpen = false;
   let inventoryReturnToPlay = false;
-  let inventoryProfile = null;
   let expectedPointerUnlock = false;
   let pointerCaptureWanted = false;
   let optionalPointerCapture = false;
@@ -119,13 +127,11 @@ function start() {
     action(action) {
       if (!playing) return;
       if (action === 'break' || action === 'place') void editBlock(action === 'place');
-      else if (action === 'fly') toggleFlight();
       else if (action === 'use') void useDoor();
-      else if (action === 'undo') void replayEdit(false);
       else if (action === 'drop') void dropItem();
     },
   });
-  touch.onModeChange = () => { pauseGame(); updateMode(); };
+  touch.onModeChange = pauseGame;
   const diagnostics = new PerformanceOverlay(() => ({
     mode: history.mode, context: `${history.mode === 'single' ? 'Single player' : history.mode === 'multiplayer' ? 'Multiplayer' : 'Menu'}${history.mode ? playing ? ' · playing' : ' · paused' : ''}`,
     render: { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
@@ -147,10 +153,27 @@ function start() {
   const center = new THREE.Vector2();
   const crosshair = document.querySelector('#crosshair');
   const toast = document.querySelector('#toast');
-  const modeIndicator = document.querySelector('#mode-indicator');
-  const timeToggle = document.querySelector('#time-toggle');
   const timeLabel = document.querySelector('#time-label');
-  timeToggle.addEventListener('click', () => void history.request('time', { action: 'hold' }));
+  const survivalStatus = document.querySelector('#survival-status');
+  const shelterStatus = document.querySelector('#shelter-status');
+  const wardHint = document.querySelector('#ward-hint');
+  const strengthHint = document.querySelector('#structure-strength');
+  const strengthLabel = document.querySelector('#strength-label');
+  const strengthMeter = document.querySelector('#strength-meter');
+  let shelter = null;
+  let confirmedProtection = null;
+  function receiveShelter(next) {
+    if (!next) return;
+    const protectedNow = next.state === 'protected';
+    if (playing && confirmedProtection !== null && next.state !== 'checking' && confirmedProtection !== protectedNow) {
+      sounds.play(WARD_LANTERN, next.state === 'protected' ? 'ward_on' : 'ward_off');
+      notify(next.state === 'protected' ? 'Ward protection active' : 'You are no longer protected');
+    }
+    if (next.state !== 'checking') confirmedProtection = protectedNow;
+    shelter = next;
+    shelterStatus.textContent = shelterDescription(next); shelterStatus.dataset.state = next.state;
+    wardRenderer.sync(next.wards);
+  }
   const inventory = new Inventory();
   const droppedItems = new DropRenderer(scene, atlas, material => lanternLighting.applyMaterial(material));
   history.inventory = () => inventory.snapshot();
@@ -162,22 +185,20 @@ function start() {
   const inventoryButton = document.querySelector('#inventory-toggle');
   const hotbar = document.querySelector('#hotbar');
   const inventoryView = new InventoryView(inventory, atlas, {
-    select(index) { if (inventory.select(index)) inventoryChanged(); },
-    assign(block) { if (inventory.assign(block)) inventoryChanged(); },
-    reset() { if (inventory.reset()) inventoryChanged(); },
     action(args) { return history.request('inventory', args); },
     craft(block) { return history.request('craft', { block }); },
     drop(args) { return history.request('drop', args); },
     close: closeInventory,
     escape() { closeInventory(true, { fromEscape: true }); },
   });
+  const storageView = new StorageView(inventory, inventoryView, args => history.request('storage', args), closeInventory);
+  const upkeepView = new UpkeepView((method, args) => history.request(method, args), closeInventory);
   inventoryButton.addEventListener('click', openInventory);
   renderHotbar();
 
   let dropping = false;
   async function dropItem(wholeStack = false) {
     if (dropping || !history.ready) return;
-    if (inventory.mode !== 'gather') { notify('Dropping items is available in Gather worlds.'); return; }
     const source = inventory.selected, stack = inventory.stacks[source];
     if (!stack) { notify('This hotbar slot is empty.'); return; }
     dropping = true;
@@ -200,12 +221,10 @@ function start() {
   }
 
   function select(block) {
-    if (inventory.mode === 'gather') {
-      const index = inventory.hotbar.indexOf(block);
-      if (index >= 0) { if (inventory.select(index)) inventoryChanged(); }
-      else if (inventory.count(block)) void history.request('inventory', { action: 'pick', block });
-      else notify(`Collect ${BLOCK_NAMES[block] || 'this material'} first.`);
-    } else if (inventory.pick(block)) inventoryChanged();
+    const index = inventory.hotbar.indexOf(block);
+    if (index >= 0) { if (inventory.select(index)) inventoryChanged(); }
+    else if (inventory.count(block)) void history.request('inventory', { action: 'pick', block });
+    else notify(`Collect ${BLOCK_NAMES[block] || 'this material'} first.`);
   }
 
   function renderHotbar() {
@@ -213,8 +232,8 @@ function start() {
     inventory.hotbar.forEach((block, index) => {
       const button = document.createElement('button'); button.type = 'button'; button.className = 'slot';
       button.dataset.slot = index; button.dataset.block = block;
-      const count = inventory.slotCount(index), quantity = Number.isFinite(count) ? String(count) : '∞';
-      button.setAttribute('aria-label', `${BLOCK_NAMES[block] || 'Empty'}, slot ${index + 1}, ${Number.isFinite(count) ? count + ' collected' : 'unlimited'}`);
+      const count = inventory.slotCount(index), quantity = String(count);
+      button.setAttribute('aria-label', `${BLOCK_NAMES[block] || 'Empty'}, slot ${index + 1}, ${count} collected`);
       button.setAttribute('aria-pressed', String(index === inventory.selected)); button.classList.toggle('selected', index === inventory.selected);
       button.classList.toggle('depleted', count === 0);
       const key = document.createElement('span'); key.className = 'slot-key'; key.textContent = index + 1;
@@ -227,22 +246,11 @@ function start() {
   function inventoryChanged() {
     renderHotbar(); inventoryView.render();
     if (!history.ready) return;
-    if (inventory.mode === 'gather') { void history.request('inventory', { action: 'select', index: inventory.selected }); return; }
-    if (history.mode === 'single') void history.flush();
-    else if (inventoryProfile) {
-      try { localStorage.setItem(inventoryProfile, JSON.stringify(inventory.snapshot())); }
-      catch { inventoryView.status.textContent = 'Hotbar applied for this visit. Browser settings storage is unavailable.'; }
-    }
+    void history.request('inventory', { action: 'select', index: inventory.selected });
   }
 
   function loadInventory(message) {
-    inventoryProfile = history.mode === 'multiplayer' && message.gameMode !== 'gather' ? `blockfield-hotbar:${message.worldId || message.world.seed + ':' + message.worldName}` : null;
-    let saved = message.inventory;
-    if (inventoryProfile) {
-      try { saved = JSON.parse(localStorage.getItem(inventoryProfile)); } catch { saved = null; }
-    }
-    if (inventoryProfile) saved = validInventory(saved) && saved.version === 1 ? saved : null;
-    inventory.restore(saved); renderHotbar(); inventoryView.render();
+    inventory.restore(message.inventory); renderHotbar(); inventoryView.render(); storageView.render();
   }
 
   function openInventory() {
@@ -255,7 +263,7 @@ function start() {
     if (!inventoryOpen) return;
     const returnToPlay = resume && (inventoryReturnToPlay || fromEscape);
     inventoryOpen = false; inventoryReturnToPlay = false;
-    inventoryView.close();
+    inventoryView.close(); storageView.close(); upkeepView.close();
     if (returnToPlay && history.ready && !play.disabled) {
       if (fromEscape) resumeFromEscape();
       else { menu.hidden = false; requestPlay(); }
@@ -265,15 +273,9 @@ function start() {
   }
 
   function cycleFlower() {
-    if (inventory.mode === 'gather') {
-      const flowers = FLOWER_TYPES.filter(block => inventory.count(block));
-      if (!flowers.length) { notify('Collect some flowers first.'); return; }
-      select(flowers[(flowers.indexOf(selected) + 1) % flowers.length]); return;
-    }
-    const block = isFlower(selected) ? FLOWER_TYPES[(FLOWER_TYPES.indexOf(selected) + 1) % FLOWER_TYPES.length]
-      : inventory.hotbar.find(isFlower) || RED_FLOWER;
-    select(block);
-    if (playing) notify(BLOCK_NAMES[block]);
+    const flowers = FLOWER_TYPES.filter(block => inventory.count(block));
+    if (!flowers.length) { notify('Collect some flowers first.'); return; }
+    select(flowers[(flowers.indexOf(selected) + 1) % flowers.length]);
   }
 
   function clearInput() {
@@ -287,11 +289,6 @@ function start() {
     sounds.stop();
     clearTimeout(toastTimer);
     toast.classList.remove('visible');
-  }
-
-  function updateMode() {
-    modeIndicator.hidden = !player.flying;
-    touch.setFlying(player.flying);
   }
 
   function requestPlay({ optionalCapture = false } = {}) {
@@ -408,6 +405,7 @@ function start() {
       return;
     }
     if (inventoryOpen) {
+      if (storageView.dialog.open || upkeepView.dialog.open) return;
       if (!typing && !modified && !event.repeat) {
         if (event.code === 'KeyI') { event.preventDefault(); closeInventory(true); }
         else if (/^Digit[1-9]$/.test(event.code)) { event.preventDefault(); const index = Number(event.code.slice(-1)) - 1; if (!inventoryView.hotbarKey(index) && inventory.select(index)) inventoryChanged(); }
@@ -418,11 +416,6 @@ function start() {
     if (event.code === 'KeyI' && !event.repeat && !modified) { event.preventDefault(); openInventory(); return; }
     if (event.code === 'KeyP' && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault(); diagnostics.setEnabled(!diagnostics.enabled); return;
-    }
-    if (['KeyT', 'KeyN'].includes(event.code) && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey) {
-      event.preventDefault();
-      void history.request('time', { action: event.code === 'KeyT' ? 'hold' : 'next' });
-      return;
     }
     if (event.code === 'KeyM' && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
@@ -439,7 +432,7 @@ function start() {
     if (event.code === 'Digit0' && !event.repeat && !modified) { event.preventDefault(); select(DOOR); return; }
     if (event.code === 'KeyL' && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
-      select(LANTERN);
+      select(event.shiftKey ? WARD_LANTERN : LANTERN);
       return;
     }
     if (event.code === 'KeyB' && !event.metaKey && !event.ctrlKey && !event.altKey) {
@@ -452,37 +445,25 @@ function start() {
       if (!event.repeat) cycleFlower();
       return;
     }
-    if (['KeyZ', 'KeyY'].includes(event.code) && !event.altKey) {
-      event.preventDefault();
-      if (!event.repeat) replayEdit(event.code === 'KeyY' || event.shiftKey);
-      return;
-    }
     if (event.code === 'KeyE' && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
       if (!event.repeat) useDoor();
       return;
     }
-    if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC', 'KeyV', 'KeyF', 'ShiftLeft', 'ShiftRight'].includes(event.code)) event.preventDefault();
+    if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyF', 'ShiftLeft', 'ShiftRight'].includes(event.code)) event.preventDefault();
     keys.add(event.code);
     if (event.code === 'Space' && !event.repeat && !player.flying) jumpQueued = true;
-    if (event.code === 'KeyV' && !event.repeat) toggleFlight();
     if (event.code === 'KeyF' && !event.repeat) editBlock(true);
   });
   function pickBlock() {
     updateTarget();
     if (target) {
       const block = buildBlock(world.get(target.x, target.y, target.z));
-      if (inventory.mode === 'gather' && !inventory.count(block)) notify(`Collect ${BLOCK_NAMES[block]} first.`);
+      if (!inventory.count(block)) notify(`Collect ${BLOCK_NAMES[block]} first.`);
       else { select(block); notify(`${BLOCK_NAMES[block]} selected`); }
     } else notify('Look at a nearby block to pick its material.');
   }
 
-  function toggleFlight() {
-    player.flying = !player.flying;
-    player.vy = 0; player.grounded = false; jumpQueued = false;
-    touch.reset(); footsteps.reset(); waterSounds.reset(); sounds.stop(); updateMode();
-    notify(player.flying ? 'Flying' : 'Walking');
-  }
   document.addEventListener('keyup', (event) => {
     keys.delete(event.code);
     if (event.code !== 'Escape') return;
@@ -558,13 +539,55 @@ function start() {
   }
 
   async function interactOrPlace() {
+    if (selected === REPAIR_TOOL && target && strength(world.get(target.x, target.y, target.z)) > 1) { await repairTarget(); return; }
     const door = interactionTarget();
     if (door) await useDoor(door);
+    else if (target && (world.get(target.x, target.y, target.z) === WARD_LANTERN || world.get(target.x, target.y, target.z) === SALVAGE_CRATE || isSapling(world.get(target.x, target.y, target.z)))) await openUpkeep();
+    else if (target && isCabinet(world.get(target.x, target.y, target.z))) await openStorage();
     else await editBlock(true);
   }
 
+  let openingStorage = false;
+  async function openStorage() {
+    if (!target || inventoryOpen || openingStorage) return;
+    const backend = history.backend, position = { x: target.x, y: target.y, z: target.z };
+    openingStorage = true;
+    try {
+      const result = await history.request('openStorage', position);
+      if (history.backend !== backend || !history.ready) return;
+      if (!result.ok) { editError(result); return; }
+      if (!playing || inventoryOpen || !isCabinet(world.get(position.x, position.y, position.z))) return;
+      inventoryReturnToPlay = playing; inventoryOpen = true;
+      pauseGame(); menu.hidden = true; storageView.open(result.storage);
+    } finally { openingStorage = false; }
+  }
+
+  let openingUpkeep = false;
+  async function openUpkeep() {
+    if (!target || inventoryOpen || openingUpkeep) return;
+    const backend = history.backend, p = { x: target.x, y: target.y, z: target.z };
+    openingUpkeep = true;
+    try {
+      const result = await history.request('inspectUpkeep', p);
+      if (history.backend !== backend || !history.ready) return;
+      if (!result.ok) { notify(upkeepFailure(result.reason)); return; }
+      if (!playing || inventoryOpen) return;
+      inventoryReturnToPlay = playing; inventoryOpen = true; pauseGame(); menu.hidden = true; upkeepView.open(result.info);
+    } finally { openingUpkeep = false; }
+  }
+  async function repairTarget() {
+    const result = await history.request('repair', { x: target.x, y: target.y, z: target.z });
+    notify(result.ok ? result.message : upkeepFailure(result.reason));
+  }
+
   async function useDoor(door = interactionTarget()) {
-    if (!door) { notify('Look at a nearby door to interact.'); return; }
+    if (selected === REPAIR_TOOL && target && strength(world.get(target.x, target.y, target.z)) > 1) { await repairTarget(); return; }
+    if (!door) {
+      if (target && (world.get(target.x, target.y, target.z) === WARD_LANTERN || world.get(target.x, target.y, target.z) === SALVAGE_CRATE || isSapling(world.get(target.x, target.y, target.z)))) await openUpkeep();
+      else if (target && isCabinet(world.get(target.x, target.y, target.z))) await openStorage();
+      else notify('Look at a door, cabinet, ward, sapling, or supply point to interact.');
+      return;
+    }
     const result = await history.toggleDoor(door.x, door.y, door.z);
     if (!result.ok) { editError(result); return; }
   }
@@ -577,7 +600,8 @@ function start() {
     let nextBlock;
     if (place) {
       if (!selected) { notify('Choose a block in your hotbar. Open inventory with I to move one there.'); return; }
-      const replacingFlower = isFlower(world.get(x, y, z));
+      if (!isBlock(selected)) { notify(selected === REPAIR_TOOL ? 'Use this tool on a damaged structure with E / Use.' : selected === BIOFUEL ? 'Use a ward emitter to load biomass cartridges.' : 'Use scrap metal in crafting and repairs.'); return; }
+      const replacingFlower = isPlant(world.get(x, y, z));
       if (selected === SLAB) {
         const placement = slabPlacement(world, target);
         if (!placement) return;
@@ -596,23 +620,28 @@ function start() {
         notify(y >= HEIGHT ? 'That’s the build height limit.' : 'You’ve reached the edge of this little world.');
         return;
       }
-      if (selected === DOOR) {
+      if (isDoor(selected)) {
         if (!replacingFlower && target.normal.y < 0.5) { notify('Place a door on a full-height surface.'); return; }
         const facing = (Math.round(-camera.rotation.y / (Math.PI / 2)) % 4 + 4) % 4;
-        const result = await history.placeDoor(x, y, z, facing);
+        const result = await history.placeDoor(x, y, z, facing, selected);
         if (!result.ok) {
           editError(result, 'A door needs a full-height surface and two clear blocks above it.');
           return;
         }
         return;
       }
-      if (selected === LANTERN) {
+      if (isLantern(selected)) {
         if (!replacingFlower && target.normal.y < 0.5) { notify('Place a lantern on a full-height surface.'); return; }
-        const result = await history.placeLantern(x, y, z);
+        const result = await history.placeLantern(x, y, z, selected);
         if (!result.ok) {
           editError(result, 'A lantern needs a full-height surface with clear space above it.');
           return;
         }
+        return;
+      }
+      if (isSapling(selected)) {
+        const result = await history.edit(x, y, z, selected);
+        if (!result.ok) editError(result, 'Plant saplings on grass or dirt with clear space above.');
         return;
       }
       if (isFlower(selected)) {
@@ -631,39 +660,36 @@ function start() {
       nextBlock = 0;
     }
     const result = await history.edit(x, y, z, nextBlock);
-    if (!result.ok) editError(result);
+    if (!result.ok && result.reason !== 'cooldown') editError(result);
+    else if (result.remaining) notify(`Structure strength: ${result.remaining} hits remaining`);
   }
 
   function editError(result, fallback = 'That edit could not be applied.') {
     notify({ blocked: 'That space is occupied by a player. Move clear, then try again.',
       changed: 'Someone changed that block. This action cannot overwrite their edit.',
+      storage_not_empty: 'Empty this cabinet before dismantling it.',
+      landmark: 'This is a fixed salvage supply point. Use it to gather supplies.',
+      capacity: 'This world has reached its storage or construction tracking limit.',
+      cooldown: 'Wait a moment before striking again.',
       storage: 'Your latest changes could not be saved. Retry saving or export a backup from the menu.',
       supplies: 'You don’t have enough of that material. Break blocks to collect more.',
       inventory_full: 'Your inventory is full. Make room before collecting more.',
       disconnected: 'Waiting for the host to reconnect…', busy: 'Let the current edits finish, then try again.', reach: 'That block is out of reach.' }[result.reason] || fallback);
   }
 
-  async function replayEdit(redo) {
-    const result = await (redo ? history.redo() : history.undo());
-    if (!result.ok) {
-      if (result.reason === 'empty') notify(`Nothing to ${redo ? 'redo' : 'undo'} yet.`);
-      else editError(result);
-      return;
-    }
-    notify(redo ? 'Redid last action' : 'Undid last action');
-  }
-
   function finishEdit(change, normal, changes = [change]) {
     const { from, to } = change;
+    const cabinet = storageView.storage;
+    if (cabinet && changes.some(c => c.x === cabinet.x && c.y === cabinet.y && c.z === cabinet.z && !isCabinet(c.to))) { closeInventory(false); notify('The cabinet was dismantled.'); }
     const position = { x: change.x + 0.5, y: change.y + 0.5, z: change.z + 0.5 };
     const listener = { x: player.x, y: player.y + EYE_HEIGHT, z: player.z };
     if (changes.every(c => isDoor(c.from) && isDoor(c.to))) {
-      if (playing) sounds.playAt(DOOR, doorState(to).open ? 'open' : 'close', position, listener);
+      if (playing) sounds.playAt(buildBlock(to), doorState(to).open ? 'open' : 'close', position, listener);
     }
     else {
-      const placing = isSolid(to) || isFlower(to);
+      const placing = isSolid(to) || isPlant(to);
       if (playing) sounds.playAt(placing ? to : from, placing ? 'place' : 'break', position, listener);
-      for (const c of changes) if ((!isSolid(c.to) && !isFlower(c.to)) && (isSolid(c.from) || isFlower(c.from))) particles.burst(c.x, c.y, c.z, c.from, normal);
+      for (const c of changes) if ((!isSolid(c.to) && !isPlant(c.to)) && (isSolid(c.from) || isPlant(c.from))) particles.burst(c.x, c.y, c.z, c.from, normal);
     }
     rebuildMeshes(changes);
   }
@@ -698,7 +724,9 @@ function start() {
   const fixedStep = 1 / 120;
   renderer.setAnimationLoop((now) => {
     const frameStarted = performance.now();
-    const elapsed = Math.min((now - previous) / 1000, 0.1);
+    const simulationElapsed = Math.max(0, (now - previous) / 1000);
+    const elapsed = Math.min(simulationElapsed, 0.1);
+    upkeepView.update(elapsed);
     previous = now;
     if (playing && history.ready) {
       accumulator += elapsed;
@@ -710,7 +738,6 @@ function start() {
           yaw: camera.rotation.y,
           jump: jumpQueued,
           sprint: keys.has('ShiftLeft') || keys.has('ShiftRight') || touch.sprint,
-          rise: Number(keys.has('Space')) - Number(keys.has('KeyC')) + touch.rise,
         }, fixedStep);
         const waterAction = waterSounds.update(before, player, world, fixedStep);
         if (waterAction) sounds.play(WATER, waterAction);
@@ -725,19 +752,19 @@ function start() {
       }
       if (player.y < -15) {
         Object.assign(player, spawnPlayer(world));
-        updateMode();
         notify('Back on solid ground.');
       }
       syncCamera();
       updateTarget();
       particles.update(elapsed, world);
     }
-    history.update(elapsed);
+    // Do not replay a long gap after the browser suspends a private world.
+    history.update(Math.min(simulationElapsed, 1));
     droppedItems.update(playing ? elapsed : 0, world);
     pickupElapsed += elapsed;
-    if (playing && history.ready && inventory.mode === 'gather' && !pickingUp && pickupElapsed >= 0.25) {
+    if (playing && history.ready && !pickingUp && pickupElapsed >= 0.25) {
       pickupElapsed = 0;
-      // The host owns the pickup delay; its wall clock may differ from this device's.
+      // The host owns pickup delays on the persistent simulation clock.
       if (droppedItems.items.some(item => Math.hypot(item.x - player.x, item.z - player.z) <= PICKUP_RADIUS && Math.abs(item.y - player.y) < 2
         && inventory.stacks.some(stack => !stack || stack.block === item.block && stack.count < STACK_LIMIT))) {
         pickingUp = true;
@@ -747,7 +774,6 @@ function start() {
     if (history.mode) chunkRenderer.update(player);
     play.disabled = !history.ready || !chunkRenderer.readyAt(player);
     inventoryButton.disabled = !history.ready;
-    timeToggle.disabled = !history.ready;
     if (history.ready && !chunkRenderer.readyAt(player)) setConnectionStatus('Preparing nearby terrain…');
     else if (history.ready && connection.textContent === 'Preparing nearby terrain…') setConnectionStatus(history.mode === 'single' ? 'Single player · Private world' : '');
     const coordinates = document.querySelector('#coordinates');
@@ -762,12 +788,26 @@ function start() {
     sky.clock.held = history.clock.held;
     const skyState = sky.update(history.clock.running ? elapsed : 0, camera);
     lanternLighting.update(playing ? elapsed : 0, camera.position, skyState.daylight);
-    const label = `${skyState.label} · ${sky.clock.held ? 'held' : 'cycling'}`;
-    if (timeLabel.textContent !== label) {
-      timeLabel.textContent = label;
-      timeToggle.setAttribute('aria-pressed', String(sky.clock.held));
-      timeToggle.setAttribute('aria-label', sky.clock.held ? 'Resume time of day' : 'Hold time of day');
+    const clock = history.clock;
+    const label = history.mode ? `Day ${clock.day || 1} · ${skyState.label} · ${clock.running ? 'World running' : 'World paused'}` : 'Horror · Gather, repair, endure';
+    if (timeLabel.textContent !== label) timeLabel.textContent = label;
+    survivalStatus.hidden = !history.mode;
+    if (history.mode) survivalStatus.textContent = `Day ${clock.day || 1} · ${skyState.label}`;
+    shelterStatus.hidden = !history.mode;
+    const aimedBlock = target ? world.get(target.x, target.y, target.z) : 0;
+    const upkeepTarget = aimedBlock === WARD_LANTERN || aimedBlock === SALVAGE_CRATE || isSapling(aimedBlock);
+    wardHint.hidden = !playing || !target || (!upkeepTarget && !isCabinet(aimedBlock) && !(selected === REPAIR_TOOL && strength(aimedBlock) > 1));
+    if (!wardHint.hidden) wardHint.textContent = selected === REPAIR_TOOL && strength(aimedBlock) > 1 ? 'E / Use to repair · Consumes one stone or scrap' : isCabinet(aimedBlock) ? 'Shared storage · E / Use to open' : aimedBlock === SALVAGE_CRATE ? 'Salvage supply point · E / Use to gather' : isSapling(aimedBlock) ? 'Sapling · E / Use to inspect growth' : `${wardDescription(shelter?.wards.find(ward => ward.x === target.x && ward.y === target.y && ward.z === target.z))} · E / Use to manage power`;
+    strengthHint.hidden = !playing || !history.ready || !target || selected !== REPAIR_TOOL || strength(aimedBlock) <= 1;
+    if (!strengthHint.hidden) {
+      const max = strength(aimedBlock), remaining = chunkRenderer.damage.remaining(target.x, target.y, target.z, aimedBlock);
+      const label = `${BLOCK_NAMES[buildBlock(aimedBlock)]} · ${remaining}/${max} strength`;
+      if (strengthLabel.textContent !== label) strengthLabel.textContent = label;
+      strengthMeter.max = max; strengthMeter.value = remaining;
+      strengthMeter.setAttribute('aria-label', label);
+      strengthHint.dataset.damaged = String(remaining < max);
     }
+    wardRenderer.update(now / 1000);
     document.body.classList.toggle('night', skyState.daylight < 0.3);
     const rendered = graphics.limiter.allow(now);
     if (rendered) {
@@ -793,7 +833,7 @@ function start() {
   const saveStatus = document.querySelector('#save-status');
   const saveNow = document.querySelector('#save-now');
   const exportWorld = document.querySelector('#export-world');
-  let currentWorldDescription = 'Wander the woods. Break a block. Build something.';
+  let currentWorldDescription = 'Gather supplies. Repair your shelter. Endure the night.';
   const retryButton = document.querySelector('#retry-connection');
   function setConnectionStatus(text) {
     connection.textContent = text;
@@ -803,10 +843,15 @@ function start() {
   history.pose = () => ({ x: player.x, y: player.y, z: player.z, yaw: camera.rotation.y, pitch: camera.rotation.x,
     active: playing, flying: player.flying });
   history.callbacks = {
+    storage(saved) { storageView.sync(saved); },
+    constructionChunk({ key, damage }) { chunkRenderer.damage.setChunk(key, damage); },
+    construction(damage) { chunkRenderer.damage.set(damage); if (playing) sounds.playAt(damage.block, 'place', { x: damage.x + .5, y: damage.y + .5, z: damage.z + .5 }, camera.position); },
+    upkeep(info) { upkeepView.sync(info); },
+    shelter: receiveShelter,
     drops(items) { droppedItems.sync(items); },
     supplies(saved) {
       if (!validInventory(saved) || saved.mode !== 'gather') return;
-      inventory.restore({ ...saved, selected: inventory.selected }); renderHotbar(); inventoryView.render();
+      inventory.restore({ ...saved, selected: inventory.selected }); renderHotbar(); inventoryView.render(); storageView.render();
     },
     status(text) {
       setConnectionStatus(text);
@@ -816,18 +861,20 @@ function start() {
       if (history.mode === 'multiplayer') renderConnectedPlayers([], history.blocked ? 'Not connected.' : 'Connecting…');
     },
     welcome(message) {
+      chunkRenderer.damage.clear();
       droppedItems.sync([]);
-      Object.assign(player, message.self, { vy: 0, grounded: false });
+      Object.assign(player, message.self, { vy: 0, grounded: false, flying: false });
       camera.rotation.set(message.self.pitch, message.self.yaw, 0, 'YXZ');
-      updateMode(); clearInput(); syncCamera(); rebuildMeshes();
+      clearInput(); syncCamera(); rebuildMeshes();
       error.hidden = true;
       nameInput.value = message.self.name;
-      currentWorldDescription = `${message.worldName} · ${message.gameMode === 'gather' ? 'Gather' : 'Creative'} · Seed: ${message.world.seed}`;
+      currentWorldDescription = `${message.worldName} · Horror · Seed: ${message.world.seed}`;
       screens.describeWorld(currentWorldDescription);
       sessionMode.dataset.mode = message.gameMode;
-      sessionModeValue.textContent = { creative: 'Creative · unlimited blocks', gather: 'Gather · collect & build' }[message.gameMode] || 'Unknown';
+      sessionModeValue.textContent = 'Horror · Gather, repair, endure';
+      document.querySelector('#resource-guide').textContent = 'Leaves → saplings · Wood → biomass fuel · Repair tool + stone/scrap → repairs. ' + (message.horror?.salvage || []).map(p => `${p.name}: X ${p.x}, Z ${p.z}`).join(' · ');
       loadInventory(message);
-      document.querySelector('[data-touch="drop"]').hidden = inventory.mode !== 'gather';
+      document.querySelector('[data-touch="drop"]').hidden = false;
       play.disabled = true;
       retryButton.hidden = true;
       saveNow.hidden = exportWorld.hidden = history.mode !== 'single';
@@ -861,8 +908,9 @@ function start() {
       for (const key of keys) chunkRenderer.mark(key);
       lanternLighting.sync(world, keys);
     },
-    edit(message) { finishEdit(message.changes[0], undefined, message.changes); },
+    edit(message) { chunkRenderer.damage.edited(message.changes); if (message.method === 'growth') rebuildMeshes(message.changes); else finishEdit(message.changes[0], undefined, message.changes); },
     disconnected() {
+      shelter = null; confirmedProtection = null; wardRenderer.sync(); shelterStatus.textContent = 'Protection unavailable · Reconnecting'; shelterStatus.dataset.state = 'checking';
       renderConnectedPlayers([], 'Not connected.');
       closeInventory(false);
       play.disabled = true;
@@ -902,8 +950,9 @@ function start() {
     }
   }
   function openSession(mode) {
-    droppedItems.sync([]);
-    closeInventory(false); inventoryProfile = null;
+    droppedItems.sync([]); shelter = null; confirmedProtection = null; wardRenderer.sync();
+    shelterStatus.textContent = 'Checking shelter'; shelterStatus.dataset.state = 'checking';
+    closeInventory(false);
     pauseGame();
     diagnostics.reset();
     screens.setSession(true);
@@ -930,7 +979,7 @@ function start() {
   document.querySelector('#create-world').addEventListener('click', () => {
     void navigator.storage?.persist?.().catch(() => {});
     const seed = document.querySelector('#world-seed').value.trim() || crypto.getRandomValues(new Uint32Array(1))[0].toString(36);
-    void localWorld(() => history.create(nameInput.value, document.querySelector('#world-name').value.trim() || 'My world', seed, document.querySelector('#world-mode').value));
+    void localWorld(() => history.create(nameInput.value, document.querySelector('#world-name').value.trim() || 'My world', seed));
   });
   document.querySelector('#join-server').addEventListener('click', () => {
     try {
@@ -940,11 +989,12 @@ function start() {
     } catch (cause) { error.hidden = false; error.textContent = cause.message; }
   });
   function showChooser() {
-    droppedItems.sync([]);
-    closeInventory(false); inventoryProfile = null;
+    droppedItems.sync([]); shelter = null; confirmedProtection = null; wardRenderer.sync();
+    shelterStatus.textContent = 'Checking shelter'; shelterStatus.dataset.state = 'checking';
+    closeInventory(false);
     pauseGame();
     diagnostics.reset();
-    history.disconnect(); chunkRenderer.reset(); world.chunks.clear(); lanternLighting.sync(world);
+    history.disconnect(); chunkRenderer.reset(); chunkRenderer.damage.clear(); world.chunks.clear(); lanternLighting.sync(world);
     otherPlayers.sync([], null); clearInput();
     screens.setSession(false);
     play.hidden = true; leaveButton.hidden = true;
@@ -996,7 +1046,7 @@ function start() {
       const info = document.createElement('div'); info.className = 'saved-world-info';
       const title = document.createElement('strong'); title.className = 'saved-world-title'; title.textContent = save.name || 'Saved world';
       const details = document.createElement('span'); details.className = 'saved-world-details';
-      details.textContent = `${save.gameMode === 'gather' ? 'Gather' : 'Creative'} · Saved ${new Date(save.updatedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`;
+      details.textContent = `${save.gameMode === 'horror' ? 'Horror' : 'Continue in Horror'} · Saved ${new Date(save.updatedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}`;
       const seed = document.createElement('span'); seed.className = 'saved-world-seed'; seed.textContent = `Seed: ${save.world?.seed || 'unknown'}`;
       info.append(title, details, seed);
       const actions = document.createElement('div'); actions.className = 'saved-world-actions';

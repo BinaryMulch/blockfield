@@ -12,9 +12,28 @@ export function timeLabel(phase) {
 export class DayClock {
   phase = 0.18;
   held = false;
+  elapsedSeconds = 0;
+  day = 1;
+
+  constructor(saved) {
+    if (saved) {
+      this.phase = saved.phase;
+      this.elapsedSeconds = saved.elapsedSeconds ?? 0;
+      this.day = saved.day ?? 1;
+    }
+  }
+
+  snapshot(running = false) {
+    return { phase: this.phase, held: false, elapsedSeconds: this.elapsedSeconds, day: this.day, running };
+  }
 
   advance(seconds) {
-    if (!this.held && Number.isFinite(seconds) && seconds > 0) this.phase = wrap(this.phase + seconds / DAY_LENGTH);
+    if (!this.held && Number.isFinite(seconds) && seconds > 0) {
+      const phase = this.phase + seconds / DAY_LENGTH;
+      this.day += Math.floor(phase);
+      this.elapsedSeconds += seconds;
+      this.phase = wrap(phase);
+    }
   }
 
   next() {

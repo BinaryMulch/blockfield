@@ -25,7 +25,7 @@ self.onmessage = ({ data: job }) => {
     const result = {}, transfer = [];
     for (const [mode, geometry] of Object.entries(buildChunkGeometry(world, cx, cz))) {
       result[mode] = { position: geometry.attributes.position.array, normal: geometry.attributes.normal.array,
-        color: geometry.attributes.color.array, uv: geometry.attributes.uv.array, index: geometry.index.array };
+        color: geometry.attributes.color.array, uv: geometry.attributes.uv.array, index: geometry.index.array, damageRanges: geometry.userData.damageRanges };
       for (const array of Object.values(result[mode])) transfer.push(array.buffer);
       geometry.dispose();
     }

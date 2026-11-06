@@ -5,13 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#b9d8e1" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="description" content="A tiny voxel sandbox. Walk, jump, and build a little world." />
-    <title>Blockfield — a tiny voxel sandbox</title>
+    <meta name="description" content="A cooperative survival horror world. Gather supplies, repair your shelter, and endure the night." />
+    <title>Blockfield — endure the night</title>
   </head>
   <body>
     <canvas id="game" aria-label="First-person voxel world"></canvas>
     <header class="brand"><span class="brand-icon" aria-hidden="true">▧</span> BLOCKFIELD <span class="edition" id="player-count">choose a world</span></header>
     <div id="coordinates" class="coordinates" hidden></div>
+    <div id="survival-status" class="survival-status" hidden></div>
+    <div id="shelter-status" class="shelter-status" role="status" aria-live="polite" hidden>Checking shelter</div>
+    <div id="ward-hint" class="ward-hint" hidden></div>
+    <div id="structure-strength" class="structure-strength" hidden><span id="strength-label"></span><meter id="strength-meter" min="0" max="1" value="1" aria-label="Structural strength"></meter></div>
 
 
 
@@ -50,11 +54,11 @@
     <main id="menu" class="menu">
       <section class="menu-card" aria-labelledby="menu-title">
         <button id="menu-back" class="menu-back" type="button" hidden>← Back</button>
-        <span class="eyebrow">A LITTLE WORLD. ENDLESS POSSIBILITIES.</span>
+        <span class="eyebrow">GATHER. REPAIR. ENDURE.</span>
         <h1 id="menu-title">Blockfield</h1>
-        <p id="menu-description">Wander the woods. Break a block. Build something.</p>
+        <p id="menu-description">Gather supplies. Repair your shelter. Endure the night.</p>
         <div id="session-mode" class="session-mode" data-menu-panel="pause" hidden><span id="session-mode-label">World mode</span><strong id="session-mode-value">Loading…</strong></div>
-        <nav class="main-actions" data-menu-panel="home" aria-label="Play modes">
+        <nav class="main-actions" data-menu-panel="home" aria-label="Play alone or together">
           <button type="button" data-menu-screen="single" class="menu-primary">Single Player <span>A world of your own</span></button>
           <button type="button" data-menu-screen="multi" class="menu-primary">Multiplayer <span>Build together with friends</span></button>
         </nav>
@@ -89,41 +93,42 @@
           <p id="fog-note">Fog changes visibility only; terrain loading stays the same. Off can expose the edge of loaded terrain.</p>
           <p id="graphics-note">Saved in this browser. Lower resolution draws fewer pixels.</p>
         </fieldset>
-          <fieldset class="general-settings"><legend>Sound &amp; world</legend><button id="time-toggle" class="time-toggle" type="button" aria-label="Hold time of day" aria-pressed="false" title="T to hold or resume time. N to skip to the next time of day."><span id="time-label">Day · cycling</span> <kbd>T</kbd></button><button id="sound-toggle" class="sound-toggle" type="button" aria-label="Mute sound" aria-pressed="false">Sound on <kbd>M</kbd></button><button id="performance-toggle" class="performance-toggle" type="button" aria-controls="performance-panel" aria-pressed="false">Performance <kbd>P</kbd></button><p>Time controls apply to everyone in a shared world.</p></fieldset>
+          <fieldset class="general-settings"><legend>Sound &amp; world</legend><p id="time-label">Horror · Gather, repair, endure</p><button id="sound-toggle" class="sound-toggle" type="button" aria-label="Mute sound" aria-pressed="false">Sound on <kbd>M</kbd></button><button id="performance-toggle" class="performance-toggle" type="button" aria-controls="performance-panel" aria-pressed="false">Performance <kbd>P</kbd></button><p>The world keeps running in menus and pauses when the last player disconnects. Leave the world to pause single player.</p></fieldset>
         </section>
         <section data-menu-panel="controls" class="controls-screen" hidden>
         <div class="control-picker"><label for="control-mode">Controls</label><select id="control-mode"><option value="mouse">Mouse &amp; keyboard</option><option value="touch">Touch</option></select></div>
         <p class="controls-note">Click or tap to use menus. Tab and Shift+Tab do not move through controls, and buttons do not keep focus. Click a text field to type.</p>
-        <p id="touch-instructions" class="touch-instructions">Move with the left stick. Drag the world to look. Aim the crosshair, then tap Break or Place. In Gather, tap Drop to drop one item from the selected hotbar slot. Tap Pause to return here, then Inventory to move stacks or drop a whole stack. Landscape gives you more room.</p>
+        <p id="touch-instructions" class="touch-instructions">Move with the left stick. Drag the world to look. Aim the crosshair, then tap Break or Place. Tap Drop to drop one item from the selected hotbar slot. Tap Menu to return here, then Inventory to move stacks or drop a whole stack. Landscape gives you more room.</p>
         <div class="instructions">
           <span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</span>
           <span><kbd>SHIFT</kbd> hold to sprint</span>
           <span><kbd>SPACE</kbd> jump</span>
           <span><span class="mouse-icon" aria-hidden="true">◧</span> mouse to look</span>
-          <span><kbd>V</kbd> toggle flying</span>
-          <span><kbd>SPACE</kbd> up / <kbd>C</kbd> down in flight</span>
           <span><span class="mouse-icon" aria-hidden="true">◧</span> click to break</span>
           <span><kbd>F</kbd> place / right-click place or interact</span>
           <span>Scroll / <kbd>1</kbd>–<kbd>9</kbd> hotbar slots</span>
           <span>Middle-click to pick a block</span>
           <span><kbd>I</kbd> open inventory</span>
-          <span><kbd>Q</kbd> drop one / <kbd>SHIFT</kbd><kbd>Q</kbd> drop stack (Gather)</span>
-          <span>Inventory (Gather): click to move stacks, right-click to split or place one</span>
-          <span>Inventory (Gather): Shift-click to move between backpack and hotbar</span>
-          <span>Inventory (Gather): hover a slot, then <kbd>1</kbd>–<kbd>9</kbd> to swap with the hotbar</span>
-          <span><kbd>ESC</kbd> pause / close menu</span>
+          <span><kbd>Q</kbd> drop one / <kbd>SHIFT</kbd><kbd>Q</kbd> drop stack</span>
+          <span>Inventory: click to move stacks, right-click to split or place one</span>
+          <span>Inventory: Shift-click to move between backpack and hotbar</span>
+          <span>Inventory: hover a slot, then <kbd>1</kbd>–<kbd>9</kbd> to swap with the hotbar</span>
+          <span><kbd>ESC</kbd> open / close menu</span>
           <span><kbd>M</kbd> mute / unmute</span>
           <span><kbd>P</kbd> performance stats</span>
-          <span><kbd>T</kbd> hold / resume time</span>
-          <span><kbd>N</kbd> next time of day</span>
-          <span><kbd>Z</kbd> undo / <kbd>SHIFT</kbd><kbd>Z</kbd> redo</span>
-          <span><kbd>E</kbd> / right-click to interact</span>
+          <span><kbd>E</kbd> / right-click to use doors, cabinets, and wards</span>
+          <span>Cabinet: click to transfer a stack, right-click to transfer one</span>
+          <span>Concrete and reinforced pieces take repeated clicks to dismantle</span>
           <span><kbd>0</kbd> choose a door</span>
-          <span><kbd>L</kbd> lantern / <kbd>B</kbd> wooden slab</span>
+          <span><kbd>L</kbd> utility light / <kbd>SHIFT</kbd><kbd>L</kbd> ward / <kbd>B</kbd> wooden slab</span>
           <span><kbd>R</kbd> choose / cycle flowers</span>
+          <span>Select a repair tool, then <kbd>E</kbd> / Use on a damaged structure</span>
+          <span>Use a ward to load fuel or switch it off; use marked supply crates to gather</span>
+          <span>Craft saplings from leaves and plant them on grass or dirt</span>
         </div>
-        <p class="controls-note">Gather: walk close to dropped items to collect them after a short delay, including items from other players. Inventory has Drop one and Drop stack buttons for held items, or the selected hotbar slot.</p>
+        <p class="controls-note">Walk close to dropped items to collect them after a short delay, including items from other players. Inventory has Drop one and Drop stack buttons for held items, or the selected hotbar slot.</p>
         </section>
+        <p id="resource-guide" data-menu-panel="pause" hidden></p>
         <div class="session-panel" data-menu-panel="pause" hidden>
           <div id="network-status" class="session-row" role="status" hidden></div>
           <button id="retry-connection" type="button" hidden>Try joining again</button>
@@ -139,7 +144,7 @@
             <div id="saved-worlds" class="saved-worlds" aria-label="Saved single-player worlds">Loading saved worlds…</div>
             <input id="import-file" type="file" accept=".json,application/json" hidden />
           </section>
-          <div class="world-choice" data-menu-panel="create" hidden><h2>A fresh start</h2><label for="world-name">World name</label><input id="world-name" maxlength="40" placeholder="My world" /><label for="world-mode">World mode</label><select id="world-mode"><option value="gather">Gather · collect &amp; build</option><option value="creative">Creative · unlimited blocks</option></select><label for="world-seed">Seed <small>(optional)</small></label><input id="world-seed" maxlength="80" placeholder="A new landscape every time" /><button id="create-world" type="button">Create a new world</button></div>
+          <div class="world-choice" data-menu-panel="create" hidden><h2>A fresh start</h2><label for="world-name">World name</label><input id="world-name" maxlength="40" placeholder="My world" /><label for="world-seed">Seed <small>(optional)</small></label><input id="world-seed" maxlength="80" placeholder="A new landscape every time" /><button id="create-world" type="button">Create a new world</button></div>
           <div class="world-choice" data-menu-panel="multi" hidden><h2>Join a server</h2><label for="server-address">IP address or hostname</label><input id="server-address" placeholder="192.168.1.42" autocomplete="off" autocapitalize="none" spellcheck="false" /><label for="server-port">Port</label><input id="server-port" type="number" inputmode="numeric" min="1" max="65535" step="1" placeholder="6200" required /><p>Enter the server’s IP address and port. No http:// or https:// needed.</p><button id="join-server" type="button">Join multiplayer</button></div>
         </div>
         <p class="footnote" id="world-footnote">A world of your own, or one shared with friends</p>
@@ -148,31 +153,42 @@
     </main>
     <dialog id="inventory-dialog" class="inventory-dialog" aria-labelledby="inventory-title" aria-describedby="inventory-description">
       <div class="inventory-card">
-        <header class="inventory-header"><div><span class="eyebrow">UNLIMITED SUPPLIES</span><h2 id="inventory-title">Creative inventory</h2></div><button id="inventory-close" type="button" aria-label="Close inventory">×</button></header>
-        <p id="inventory-description">Choose a hotbar slot, then choose its block. Your supplies never run out.</p>
+        <header class="inventory-header"><div><span class="eyebrow">SUPPLIES &amp; SHELTER</span><h2 id="inventory-title">Inventory</h2></div><button id="inventory-close" type="button" aria-label="Close inventory">×</button></header>
+        <p id="inventory-description">Gather materials, craft supplies, and repair your shelter.</p>
         <section id="inventory-crafting" class="inventory-crafting" hidden><h3>Crafting</h3><div id="inventory-recipes" class="inventory-recipes" aria-label="Choose a recipe"></div><div class="inventory-craft-action"><p id="inventory-recipe"></p><button id="inventory-craft" type="button">Make</button></div></section>
         <section id="inventory-storage-section" hidden><h3>Inventory</h3><nav id="inventory-storage" class="inventory-storage" aria-label="Backpack"></nav></section>
         <h3 id="inventory-hotbar-label" hidden>Hotbar</h3><nav id="inventory-hotbar" class="inventory-hotbar" aria-label="Hotbar"></nav>
         <p id="inventory-status" class="inventory-status" role="status" aria-live="polite"></p>
         <div id="inventory-drop-actions" hidden><button id="inventory-drop-one" type="button">Drop one</button> <button id="inventory-drop-stack" type="button">Drop stack</button></div>
-        <div id="inventory-catalog"><label class="inventory-search-label" for="inventory-search">Find a block</label><input id="inventory-search" class="inventory-search" type="search" placeholder="Search blocks and flowers…" autocomplete="off" spellcheck="false" />
-        <p id="inventory-results" class="inventory-results" role="status" aria-live="polite"></p><div id="inventory-grid" class="inventory-grid" aria-label="Unlimited block supplies"></div></div>
         <div id="inventory-cursor" class="inventory-cursor" hidden></div>
-        <footer class="inventory-footer"><button id="inventory-reset" type="button">Reset hotbar</button><span>1–9 choose slot · I return · Esc return</span><button id="inventory-back" type="button">Back to game</button></footer>
+        <footer class="inventory-footer"><span>Click move · Right-click split · I return · Esc return</span><button id="inventory-back" type="button">Back to game</button></footer>
+      </div>
+    </dialog>
+    <dialog id="storage-dialog" class="inventory-dialog storage-dialog" aria-labelledby="storage-title" aria-describedby="storage-status">
+      <div class="inventory-card">
+        <header class="inventory-header"><div><span class="eyebrow">OUTPOST SUPPLIES</span><h2 id="storage-title">Shared storage</h2></div><button id="storage-close" type="button" aria-label="Close storage">×</button></header>
+        <h3>Cabinet · 27 shared slots</h3><nav class="inventory-storage" data-storage-grid="storage" aria-label="Shared cabinet"></nav>
+        <h3>Your supplies · Hotbar first</h3><nav class="inventory-storage" data-storage-grid="player" aria-label="Your supplies"></nav>
+        <p id="storage-status" class="inventory-status" role="status" aria-live="polite"></p>
+        <footer class="inventory-footer"><span>Click transfer stack · Right-click transfer one · Esc return</span></footer>
+      </div>
+    </dialog>
+    <dialog id="upkeep-dialog" class="inventory-dialog upkeep-dialog" aria-labelledby="upkeep-title" aria-describedby="upkeep-detail">
+      <div class="inventory-card">
+        <header class="inventory-header"><div><span class="eyebrow">OUTPOST UPKEEP</span><h2 id="upkeep-title">Upkeep</h2></div><button id="upkeep-close" type="button" aria-label="Close upkeep">×</button></header>
+        <p id="upkeep-detail"></p>
+        <div class="upkeep-actions"><button id="ward-refuel" type="button">Load biomass cartridge</button><button id="ward-power" type="button">Switch off</button><button id="salvage-gather" type="button">Gather one bundle</button></div>
+        <p id="upkeep-status" role="status" aria-live="polite"></p>
       </div>
     </dialog>
     <div id="crosshair" class="crosshair" aria-hidden="true" hidden></div>
-    <div id="mode-indicator" class="mode-indicator" hidden>FLYING</div>
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <div id="touch-controls" class="touch-controls" aria-label="Touch game controls" hidden>
-      <button type="button" data-touch="pause" class="touch-pause">Pause</button>
+      <button type="button" data-touch="pause" class="touch-pause">Menu</button>
       <div id="touch-stick" class="touch-stick" role="group" aria-label="Movement stick"><span></span><small>MOVE</small></div>
       <div class="touch-tools">
         <button type="button" data-touch="sprint" aria-pressed="false">Sprint</button>
-        <button type="button" data-touch="fly" aria-pressed="false">Fly</button>
-        <button type="button" data-touch="down" aria-label="Fly down" hidden>Down</button>
-        <button type="button" data-touch="use">Use door</button>
-        <button type="button" data-touch="undo">Undo</button>
+        <button type="button" data-touch="use">Use</button>
         <button type="button" data-touch="drop" hidden>Drop</button>
       </div>
       <div class="touch-actions"><button type="button" data-touch="break">Break</button><button type="button" data-touch="place">Place</button><button type="button" data-touch="jump">Jump</button></div>

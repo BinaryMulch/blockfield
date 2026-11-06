@@ -7,6 +7,8 @@ import { GameRoom } from '../server/room.js';
 import { buildChunkGeometry } from '../src/terrain.js';
 import { serverURL } from '../src/session.js';
 
+const replay = (player, redo = false) => { player.history.spendSlot = undefined; return player.history[redo ? 'redo' : 'undo'](player.pose); };
+
 test('large worlds allocate chunks on demand rather than a world-sized voxel array', () => {
   const world = new ChunkWorld({ seed: 'allocation' });
   assert.equal(world.size, 512); assert.equal(world.blocks, undefined); assert.equal(world.chunks.size, 0);
@@ -71,19 +73,20 @@ test('eviction retains builds and removals, regenerates untouched terrain, and b
 });
 
 test('cold history can regenerate a chunk and preserves conflict lineage after eviction', () => {
-  const world = new ChunkWorld({ seed: 'history' }), room = new GameRoom({ world, gameMode: 'creative' });
+  const world = new ChunkWorld({ seed: 'history' }), room = new GameRoom({ world, gameMode: 'horror' });
   const a = room.join('Alice'), b = room.join('Bob');
-  const command = (player, method, args = {}) => room.command(player.id, { method, ...args, ...(args.x !== undefined ? { expected: room.expected(args.x, args.y, args.z) } : {}) });
+  a.inventory.stacks[0] = { block: LANTERN, count: 1 };
+  const command = (player, method, args = {}) => room.command(player.id, { method, slot: 0, ...args, ...(args.x !== undefined ? { expected: room.expected(args.x, args.y, args.z) } : {}) });
   const cell = { x: 255, y: 8, z: 255 };
   assert.equal(command(a, 'placeLantern', cell).ok, true);
   world.evict([], 5);
   assert.equal(command(b, 'edit', { ...cell, block: AIR }).ok, true);
   assert.equal(command(b, 'placeLantern', cell).ok, true);
   world.evict([], 5);
-  assert.equal(command(a, 'undo').reason, 'changed');
+  assert.equal(replay(a).reason, 'changed');
   assert.equal(world.get(cell.x, cell.y, cell.z), LANTERN);
-  command(b, 'undo'); command(b, 'undo');
-  assert.equal(command(a, 'undo').ok, true);
+  replay(b); replay(b);
+  assert.equal(replay(a).ok, true);
   assert.equal(world.get(cell.x, cell.y, cell.z), AIR);
 });
 

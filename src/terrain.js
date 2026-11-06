@@ -1,6 +1,8 @@
 import * as THREE from 'three';
-import { SIZE, HEIGHT, WATER, GLASS, LANTERN, isSolid, isOpaque, isSlab, isFlower, doorState, blockBounds, lanternParts, flowerParts } from './world.js';
+import { SIZE, HEIGHT, WATER, GLASS, isLantern, isSolid, isOpaque, isSlab, isPlant, doorState, blockBounds, lanternParts, flowerParts } from './world.js';
 import { TILES, faceTile, tileUVs } from './textures.js';
+import { damageStyle, damageIndex, damageVariant } from './damage.js';
+import { buildBlock } from './world.js';
 
 // Counterclockwise corners, viewed from outside each face.
 const FACES = [
@@ -39,7 +41,7 @@ export function buildFlowerGeometry(world) {
 }
 
 export function buildItemGeometry(block) {
-  const mode = isFlower(block) ? 'flowers' : block === LANTERN ? 'lantern' : block === GLASS ? 'glass' : 'solid';
+  const mode = isPlant(block) ? 'flowers' : isLantern(block) ? 'lantern' : block === GLASS ? 'glass' : 'solid';
   return buildGeometry({ get: (x, y, z) => x === 0 && y === 0 && z === 0 ? block : 0 }, mode, { minX: 0, maxX: 1, minZ: 0, maxZ: 1 });
 }
 
@@ -52,34 +54,35 @@ function buildGeometry(world, mode, { minX = 0, maxX = SIZE, minZ = 0, maxZ = SI
   const normals = [];
   const colors = [];
   const uvs = [];
-  const indices = [];
+  const indices = [], damageRanges = [];
   for (let y = 0; y < HEIGHT; y++) {
     for (let z = minZ; z < maxZ; z++) {
       for (let x = minX; x < maxX; x++) {
         const block = world.get(x, y, z);
         const included = mode === 'water' ? block === WATER : mode === 'glass' ? block === GLASS
-          : mode === 'lantern' ? block === LANTERN : mode === 'flowers' ? isFlower(block) : isSolid(block) && block !== GLASS && block !== LANTERN;
+          : mode === 'lantern' ? isLantern(block) : mode === 'flowers' ? isPlant(block) : isSolid(block) && block !== GLASS && !isLantern(block);
         if (!included) continue;
+        const startVertex = positions.length / 3;
         const door = doorState(block);
         const variation = 0.94 + (((x * 73 + y * 31 + z * 97) % 19) / 19) * 0.12;
-        const parts = block === LANTERN ? lanternParts(x, y, z) : isFlower(block) ? flowerParts(block, x, y, z) : [blockBounds(block, x, y, z)];
+        const parts = isLantern(block) ? lanternParts(x, y, z) : isPlant(block) ? flowerParts(block, x, y, z) : [blockBounds(block, x, y, z)];
         for (const [partIndex, bounds] of parts.entries()) {
-          const tint = isFlower(block) ? new THREE.Color(bounds.color).multiplyScalar(variation).toArray() : [variation, variation, variation];
+          const tint = isPlant(block) ? new THREE.Color(bounds.color).multiplyScalar(variation).toArray() : [variation, variation, variation];
           if (mode === 'water') bounds.maxY = y + (world.get(x, y + 1, z) === WATER ? 1 : 0.88);
           for (const { normal, corners } of FACES) {
             const neighbor = world.get(x + normal[0], y + normal[1], z + normal[2]);
             if (door) {
               const other = doorState(neighbor);
               if (normal[1] && other && other.facing === door.facing && other.open === door.open) continue;
-            } else if (block !== LANTERN && !isFlower(block) && (isOpaque(neighbor) || isSlab(neighbor) || mode === 'water' && neighbor === WATER || mode === 'glass' && neighbor === GLASS)) {
+            } else if (!isLantern(block) && !isPlant(block) && (isOpaque(neighbor) || isSlab(neighbor) || mode === 'water' && neighbor === WATER || mode === 'glass' && neighbor === GLASS)) {
               const other = blockBounds(neighbor, x + normal[0], y + normal[1], z + normal[2]);
               if (neighbor === WATER && world.get(x + normal[0], y + normal[1] + 1, z + normal[2]) !== WATER) other.maxY -= 0.12;
               if (coversFace(bounds, other, normal)) continue;
             }
             const longX = bounds.maxX - bounds.minX > 0.5;
             const broadDoorFace = door && (longX ? normal[2] !== 0 : normal[0] !== 0);
-            const tile = block === LANTERN ? (partIndex === 0 && normal[1] === 0 ? TILES.LANTERN : TILES.LANTERN_TOP)
-              : door && !broadDoorFace ? TILES.PLANKS : faceTile(block, normal[1]);
+            const tile = isLantern(block) ? (partIndex === 0 && normal[1] === 0 ? faceTile(block, 0) : TILES.LANTERN_TOP)
+              : door && !broadDoorFace ? TILES.CABINET_SIDE : faceTile(block, normal[1], normal[0], normal[2]);
             const faceUVs = tileUVs(tile);
             const offset = positions.length / 3;
             for (let corner = 0; corner < corners.length; corner++) {
@@ -98,6 +101,11 @@ function buildGeometry(world, mode, { minX = 0, maxX = SIZE, minZ = 0, maxZ = SI
             indices.push(offset, offset + 1, offset + 2, offset + 2, offset + 1, offset + 3);
           }
         }
+        if (mode === 'solid' && damageStyle(block) >= 0 && positions.length / 3 > startVertex) {
+          const baseY = y - Number(door?.upper || false);
+          damageRanges.push(damageIndex(x, y, z, block), startVertex, positions.length / 3 - startVertex,
+            damageStyle(block) * 4 + damageVariant(x, baseY, z), door ? door.upper ? 2 : 1 : 0, buildBlock(block));
+        }
       }
     }
   }
@@ -107,6 +115,7 @@ function buildGeometry(world, mode, { minX = 0, maxX = SIZE, minZ = 0, maxZ = SI
   geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geometry.setIndex(indices);
+  geometry.userData.damageRanges = new Uint32Array(damageRanges);
   geometry.computeBoundingSphere();
   return geometry;
 }

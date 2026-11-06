@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
 import { World, AIR, STONE, WOOD, SLAB, SIZE } from '../src/world.js';
-import { Inventory, emptyGatherInventory, CREATIVE_ITEMS } from '../src/inventory.js';
+import { Inventory, emptyGatherInventory, MATERIALS } from '../src/inventory.js';
 import { ItemDrops, MAX_DROPS, validDrops } from '../src/drops.js';
 import { ChunkWorld } from '../src/chunks.js';
 import { GameRoom } from '../server/room.js';
@@ -73,7 +73,7 @@ test('pickup enforces proximity, active play, walls, and capacity, leaving parti
 test('world saves validate and retain drops independently of inventory, supporting legacy worlds', () => {
   const { drops, inventory, drop } = fixture(); drop(5);
   const world = new ChunkWorld({ seed: 'drops' });
-  const save = captureSave({ world, id: 'drops', name: 'Drops', createdAt: 1, clock: { phase: 0.2, held: false }, gameMode: 'gather', inventory: inventory.snapshot(), drops: drops.snapshot() });
+  const save = captureSave({ world, id: 'drops', name: 'Drops', createdAt: 1, clock: { phase: 0.2, held: false }, gameMode: 'horror', inventory: inventory.snapshot(), drops: drops.snapshot() });
   assert.equal(validateSave(JSON.parse(JSON.stringify(save))).drops[0].count, 5);
   const legacy = { ...save }; delete legacy.drops; assert.equal(validateSave(legacy), legacy);
   for (const changed of [{ count: 0 }, { count: 65 }, { block: AIR }, { x: -1 }, { y: Infinity }, { readyAt: -1 }, { id: null }]) {
@@ -87,17 +87,17 @@ test('world saves validate and retain drops independently of inventory, supporti
 });
 
 test('shared drops transfer once between players, survive restart, and cannot be undone to duplicate items', () => {
-  const { world, pose } = fixture(), room = new GameRoom({ world, gameMode: 'gather' });
+  const { world, pose } = fixture(), room = new GameRoom({ world, gameMode: 'horror' });
   const a = room.join('Alice'), b = room.join('Bob');
   room.move(a.id, pose); world.set(8, 1, 6, WOOD);
   assert.equal(room.command(a.id, { method: 'edit', x: 8, y: 1, z: 6, block: AIR, expected: room.expected(8, 1, 6) }).ok, true);
   assert.equal(room.command(a.id, { method: 'drop', source: 0, amount: 1, expectedSource: { block: WOOD, count: 1 } }).ok, true);
-  assert.equal(room.command(a.id, { method: 'undo' }).reason, 'supplies');
+  assert.equal(room.command(a.id, { method: 'undo' }).reason, 'restricted');
   const item = room.drops.items[0]; item.readyAt = 0; room.move(b.id, { ...pose, x: item.x, z: item.z });
   assert.equal(room.command(b.id, { method: 'pickup', block: WOOD, count: 64 }).ok, true);
   assert.equal(room.command(b.id, { method: 'pickup' }).ok, false); assert.equal(b.inventory.count(WOOD), 1); assert.equal(a.inventory.count(WOOD), 0);
   // A normal chunk world can be saved and restored with the item and owner inventory together.
-  const persistent = new GameRoom({ gameMode: 'gather' }), player = persistent.join('Builder');
+  const persistent = new GameRoom({ gameMode: 'horror' }), player = persistent.join('Builder');
   player.inventory.stacks[0] = { block: WOOD, count: 8 };
   assert.equal(persistent.command(player.id, { method: 'drop', source: 0, amount: 3, expectedSource: { block: WOOD, count: 8 } }).ok, true);
   const restored = GameRoom.fromSave(JSON.parse(JSON.stringify(persistent.toSave()))), again = restored.join('Builder', player.token);
@@ -108,7 +108,7 @@ test('shared drops transfer once between players, survive restart, and cannot be
 test('private drop requests save inventory and entities together, retain unsaved work, and block overlapping pickups', async () => {
   const { world, inventory, pose } = fixture();
   // Use a local backend without starting its browser terrain worker or IndexedDB.
-  const session = Object.assign(Object.create(LocalSession.prototype), { world, resources: inventory, drops: new ItemDrops(), ready: true, closed: false, editing: false, callbacks: {}, pose: () => pose });
+  const session = Object.assign(Object.create(LocalSession.prototype), { world, resources: inventory, clock: { elapsedSeconds: 0 }, drops: new ItemDrops(), ready: true, closed: false, editing: false, callbacks: {}, pose: () => pose });
   let release, saved, published = false;
   session.save = () => { saved = { inventory: inventory.snapshot(), drops: session.drops.snapshot() }; return new Promise(resolve => { release = resolve; }); };
   session.callbacks.drops = () => { published = true; };
@@ -123,9 +123,9 @@ test('private drop requests save inventory and entities together, retain unsaved
 
 test('item rendering reuses geometry for every material and removes models on pickup or world switch', () => {
   const scene = new THREE.Scene(), view = new DropRenderer(scene, new THREE.Texture(), () => {});
-  const items = CREATIVE_ITEMS.map(({ id }, i) => ({ id: `render-${i}`, block: id, count: 1, x: 8, y: 2, z: 8, readyAt: 0 }));
+  const items = MATERIALS.map(({ id }, i) => ({ id: `render-${i}`, block: id, count: 1, x: 8, y: 2, z: 8, readyAt: 0 }));
   view.sync(items); view.update(0.1, { getChunk: () => ({}) });
-  assert.equal(view.root.children.length, CREATIVE_ITEMS.length);
+  assert.equal(view.root.children.length, MATERIALS.length);
   for (const mesh of view.root.children) { assert.ok(mesh.geometry.attributes.position.count > 0); assert.ok(mesh.geometry.attributes.position.array.every(Number.isFinite)); assert.equal(mesh.visible, true); }
   const geometry = view.root.children[0].geometry;
   view.sync([items[0]]); assert.equal(view.root.children.length, 1); assert.equal(view.root.children[0].geometry, geometry);

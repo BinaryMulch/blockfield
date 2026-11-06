@@ -16,7 +16,7 @@ npm start
 
 Open `http://localhost:6200/` on the host, or `http://VM-IP:6200/` from another computer. Replace `VM-IP` with the VM's address. Allow TCP 6200 through the VM firewall for your home network; the Mac must be able to reach the VM.
 
-Choose **Single player** for a private browser world or **Multiplayer** for the server's shared world. `http://VM-IP:6200/?join=1` joins multiplayer directly. New worlds default to Gather.
+Choose **Single player** for a private browser world or **Multiplayer** for the server's shared world. `http://VM-IP:6200/?join=1` joins multiplayer directly. All worlds use Horror mode. New worlds begin near a damaged modern maintenance outpost with a shared storage cabinet and nearby renewable salvage sites. Create a new world to see the new starter layout; existing structures retain their shapes and receive the updated 32×32 textures.
 
 Keep the terminal open while hosting manually. **Ctrl+C** saves and stops the server. For local development, `npm run dev` serves live code changes. On a Mac, the included **Play Blockfield.command** launcher also starts development hosting.
 
@@ -110,15 +110,15 @@ journalctl -u blockfield -n 50 --no-pager
 
 After updating, refresh each player's game tab. Keep browser website data: private worlds and multiplayer guest identity are stored there.
 
-Updating the application preserves the configured `DATA_DIR`, saved worlds, and server inventories. Existing worlds keep their saved game mode. The VM's settings remain in `/etc/systemd/system/blockfield.service`; see [Set the game mode on the VM](#set-the-game-mode-on-the-vm). Run `systemctl daemon-reload` when that service file changes; a normal code update does not require it.
+Updating the application preserves the configured `DATA_DIR`, saved worlds, and server inventories. Existing worlds migrate to Horror while preserving terrain, builds, and owned supplies. The VM's settings remain in `/etc/systemd/system/blockfield.service`. Run `systemctl daemon-reload` when that service file changes; a normal code update does not require it.
 
 ## Saves, backups, and settings
 
 - Default shared saves: `data/world.json` and `data/world.json.bak` inside the project. `.bak` holds the previous checkpoint.
 - Before backing up or restoring the data folder, stop the server. Copy the folder somewhere separate, then start the server again.
 - Single-player saves stay in each browser, not on the VM. Use **Export backup / Import world backup** to move them between browsers or site addresses.
-- Shared Gather inventories are tied to an anonymous identity in the browser's website data. Display names do not identify inventories; clearing website data can lose access to those items.
-- Dropped Gather items are saved with the world, including private-world exports and shared-server backups. Keep the same save directory when updating to retain them along with inventories.
+- Shared survival inventories are tied to an anonymous identity in the browser's website data. Display names do not identify inventories; clearing website data can lose access to those items.
+- Dropped items are saved with the world, including private-world exports and shared-server backups. Keep the same save directory when updating to retain them along with inventories.
 - Check `http://VM-IP:6200/healthz` for server/save health; it should report `"ok": true`.
 
 Settings are environment variables. For manual starts, prefix `npm start` with them; for systemd, add `Environment=...` lines and reload/restart the service.
@@ -130,29 +130,13 @@ Settings are environment variables. For manual starts, prefix `npm start` with t
 | `DATA_DIR` | Project's `data/` folder; a different directory creates a separate shared world |
 | `WORLD_NAME` | `Blockfield Together` |
 | `WORLD_SEED` | `Blockfield` |
-| `GAME_MODE` | `gather`; choose `creative` for unlimited supplies |
 
-Name, seed, and mode initialize **new** server worlds only. Existing saves restore their own settings. One server may write to a given save directory at a time. No automatic release/update pipeline is required.
+Name and seed initialize **new** server worlds only. Existing saves retain their terrain and structures. There is one Horror mode; old GAME_MODE environment entries are ignored and may be removed. One server may write to a save directory at a time.
 
-### Set the game mode on the VM
+### Existing worlds and fresh cabins
 
-For the root-based VM installation above, edit `/etc/systemd/system/blockfield.service` directly. This setup does not load `/etc/blockfield.env`; that file belongs to the separate advanced installation.
+Updating preserves terrain, builds, world identity, and owned Gather supplies. Older Creative hotbars become empty finite inventories. Existing worlds receive no automatic cabin, preventing an overlay from replacing your buildings. Their saved time of day is retained, with manual time holds cleared.
 
-Under `[Service]`, add:
+For a separate fresh Horror world with a starter cabin, change the DATA_DIR line in the service to a new directory, such as `/root/blockfield/data-horror`, then run `systemctl daemon-reload` and `systemctl restart blockfield`. Keep the old directory to retain its world. Do not delete existing saves to update the game.
 
-```ini
-Environment=GAME_MODE=gather
-```
-
-To create a separate Gather world, replace the existing `DATA_DIR` line with a new directory:
-
-```ini
-Environment=DATA_DIR=/root/blockfield/data-gather
-```
-
-The previous world stays in `/root/blockfield/data`. Changing `GAME_MODE` alone does not convert an existing saved world. Apply service-file changes with:
-
-```sh
-systemctl daemon-reload
-systemctl restart blockfield
-```
+The server clock runs whenever at least one player is connected, including in menus. The last disconnect saves and pauses it. Reconnecting or restarting resumes saved simulation time without offline catchup.

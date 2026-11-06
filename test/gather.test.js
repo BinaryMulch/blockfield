@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { Inventory, CREATIVE_ITEMS, emptyGatherInventory, validInventory } from '../src/inventory.js';
+import { Inventory, MATERIALS, DEFAULT_HOTBAR, emptyGatherInventory, validInventory } from '../src/inventory.js';
 import { EditHistory } from '../src/history.js';
 import { World, AIR, GRASS, STONE, WOOD, PLANKS, GLASS, SAND, DOOR, SLAB, UPPER_SLAB, LANTERN, DAISY, doorBlock } from '../src/world.js';
 import { ChunkWorld } from '../src/chunks.js';
@@ -86,7 +86,7 @@ test('recipes consume ingredients, enforce capacity, and cannot run without supp
   stock(PLANKS, 63); assert.equal(inventory.craft(PLANKS).ok, true); assert.equal(inventory.count(PLANKS), 67); stock(WOOD, 1);
   stock(STONE, 4); stock(GLASS, 1); assert.equal(inventory.craft(LANTERN).ok, true); assert.equal(inventory.count(LANTERN), 1);
   assert.equal(inventory.count(STONE), 0); assert.equal(inventory.count(WOOD), 0); assert.equal(inventory.count(GLASS), 0);
-  assert.equal(new Inventory().craft(PLANKS).reason, 'invalid'); assert.equal(inventory.craft(SAND).reason, 'invalid');
+  assert.equal(new Inventory().craft(PLANKS).reason, 'supplies'); assert.equal(inventory.craft(SAND).reason, 'invalid');
 });
 
 test('replacing flowers and removing lantern supports transfers each distinct collected item', () => {
@@ -97,17 +97,17 @@ test('replacing flowers and removing lantern supports transfers each distinct co
 
 test('saved gather worlds round trip counts, reject malformed profiles, and preserve legacy creative saves', () => {
   const { inventory, stock } = fixture(); stock(WOOD, 12);
-  const world = new ChunkWorld({ seed: 'gather' }), save = captureSave({ world, id: 'gather-test', name: 'Gather', createdAt: 1, clock: { phase: .2, held: false }, gameMode: 'gather', inventory: inventory.snapshot() });
+  const world = new ChunkWorld({ seed: 'gather' }), save = captureSave({ world, id: 'gather-test', name: 'Gather', createdAt: 1, clock: { phase: .2, held: false }, gameMode: 'horror', inventory: inventory.snapshot() });
   assert.equal(new Inventory(validateSave(JSON.parse(JSON.stringify(save))).inventory).count(WOOD), 12);
-  assert.throws(() => validateSave({ ...save, inventory: new Inventory().snapshot() }), /supplies are invalid/);
+  assert.throws(() => validateSave({ ...save, inventory: { version: 1, slots: [...DEFAULT_HOTBAR], selected: 0 } }), /supplies are invalid/);
   assert.throws(() => validateSave({ ...save, profiles: [[randomUUID(), { ...inventory.snapshot(), stacks: [{ block: WOOD, count: 100 }] }]] }), /player supplies/);
-  const legacy = { ...save, inventory: new Inventory().snapshot() }; delete legacy.gameMode;
+  const legacy = { ...save, inventory: { version: 1, slots: [...DEFAULT_HOTBAR], selected: 0 } }; delete legacy.gameMode;
   assert.equal(validateSave(legacy), legacy);
-  assert.equal(GameRoom.fromSave(legacy).gameMode, 'creative');
+  assert.equal(GameRoom.fromSave(legacy).gameMode, 'horror');
 });
 
 test('multiplayer inventories are independent, authoritative, and restored by persistent browser identity', () => {
-  const room = new GameRoom({ gameMode: 'gather' }), token = randomUUID(), a = room.join('Alice', token), b = room.join('Bob', randomUUID());
+  const room = new GameRoom({ gameMode: 'horror' }), token = randomUUID(), a = room.join('Alice', token), b = room.join('Bob', randomUUID());
   const x = Math.floor(a.pose.x), z = Math.floor(a.pose.z), y = Math.floor(a.pose.y) - 1, block = room.world.get(x, y, z);
   const command = (player, after) => room.command(player.id, { method: 'edit', x, y, z, block: after, expected: room.expected(x, y, z), counts: Array(15).fill(64) });
   assert.equal(command(a, AIR).ok, true); assert.equal(a.inventory.count(block), 1); assert.equal(b.inventory.count(block), 0);
@@ -115,7 +115,7 @@ test('multiplayer inventories are independent, authoritative, and restored by pe
   assert.equal(room.join('Duplicate', token), null);
   const publicPlayers = JSON.stringify(room.playerList()); assert.equal(publicPlayers.includes(token), false); assert.equal(publicPlayers.includes('counts'), false);
   const restored = GameRoom.fromSave(JSON.parse(JSON.stringify(room.toSave()))), again = restored.join('Alice', token);
-  assert.equal(again.inventory.count(block), 1); assert.equal(restored.gameMode, 'gather');
+  assert.equal(again.inventory.count(block), 1); assert.equal(restored.gameMode, 'horror');
   assert.equal(restored.snapshot(again).playerToken, token); assert.equal(restored.snapshot(again).inventory.version, 3);
   room.leave(a.id); assert.equal(room.join('Alice', token).inventory.count(block), 1);
 });

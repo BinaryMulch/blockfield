@@ -31,13 +31,13 @@ test('versioned sparse saves restore edited and removed blocks without saving ge
   assert.equal(world.chunks.size, 0);
   for (const [x, y, z, block] of [[255, 8, 255, LANTERN], [257, 8, 255, DAISY], [254, 8, 255, doorBlock(2, true)], [254, 9, 255, doorBlock(2, true, true)], [252, 7, 255, AIR]]) assert.equal(world.get(x, y, z), block);
   world.evict([], 5); assert.equal(world.get(255, 8, 255), LANTERN);
-  assert.equal(save.player.flying, true);
+  assert.equal(save.player.flying, false);
 });
 
 test('saved room names, seeds, identity and time restore while connection histories start fresh', () => {
   const { save } = record(), room = GameRoom.fromSave(save);
   assert.equal(room.world.chunks.size, 0); assert.equal(room.name, save.name); assert.equal(room.worldId, save.id);
-  assert.equal(room.world.seed, 'saved-seed'); assert.equal(room.clock.phase, 0.75); assert.equal(room.clock.held, true);
+  assert.equal(room.world.seed, 'saved-seed'); assert.equal(room.clock.phase, 0.75); assert.equal(room.clock.held, false);
   assert.equal(room.players.size, 0); assert.equal(room.versions.size, 0);
   assert.equal(room.join('New connection').history.undoStack.length, 0);
 });
@@ -150,7 +150,7 @@ function peer(url) {
 }
 
 async function startProcess(dir, seed = 'crash-test') {
-  const child = spawn(process.execPath, ['server.js', '--production'], { env: { ...process.env, PORT: '0', DATA_DIR: dir, WORLD_NAME: 'Durable world', WORLD_SEED: seed, GAME_MODE: 'creative' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['server.js', '--production'], { env: { ...process.env, PORT: '0', DATA_DIR: dir, WORLD_NAME: 'Durable world', WORLD_SEED: seed }, stdio: ['ignore', 'pipe', 'pipe'] });
   const url = await new Promise((resolve, reject) => {
     let log = '';
     const timer = setTimeout(() => { child.kill(); reject(new Error(log || 'Host did not start')); }, 8000);
@@ -162,38 +162,40 @@ async function startProcess(dir, seed = 'crash-test') {
   return { child, url };
 }
 
-test('acknowledged network edits and time survive SIGKILL and restart without relying on shutdown', async t => {
+test('acknowledged harvesting and survival time survive SIGKILL without relying on shutdown', async t => {
   const dir = await directory(t);
   let host = await startProcess(dir);
   t.after(async () => { if (host.child.exitCode === null && host.child.signalCode === null) { const done = once(host.child, 'exit'); host.child.kill('SIGTERM'); await done; } });
   let client = peer(host.url.replace('http:', 'ws:') + 'multiplayer');
-  await client.wait(m => m.type === 'welcome');
-  client.send({ type: 'command', requestId: 1, method: 'placeLantern', x: 255, y: 8, z: 255, expected: [1, 0, 0, 0] });
+  const first = await client.wait(m => m.type === 'welcome');
+  client.send({ type: 'command', requestId: 1, method: 'edit', x: 255, y: 7, z: 255, block: AIR, expected: [2, 1, 0, 0] });
   assert.equal((await client.wait(m => m.type === 'result' && m.requestId === 1)).ok, true);
-  client.send({ type: 'command', requestId: 2, method: 'time', action: 'hold' }); await client.wait(m => m.type === 'result' && m.requestId === 2);
-  client.send({ type: 'command', requestId: 3, method: 'time', action: 'next' }); await client.wait(m => m.type === 'result' && m.requestId === 3);
   const onDisk = validateSave(JSON.parse(await readFile(path.join(dir, 'world.json'), 'utf8')));
-  assert.equal(onDisk.clock.phase, 0.46); assert.equal(onDisk.clock.held, true);
+  assert.equal(onDisk.gameMode, 'horror'); assert.equal(onDisk.clock.held, false);
+  const profile = onDisk.profiles.find(([token]) => token === first.playerToken)[1];
+  assert.equal(profile.stacks[0].count, 1);
   const killed = once(host.child, 'exit'); host.child.kill('SIGKILL'); await killed;
   client.socket.terminate();
   host = await startProcess(dir, 'must-not-replace-saved-seed');
   client = peer(host.url.replace('http:', 'ws:') + 'multiplayer'); t.after(() => client.socket.terminate());
   const welcome = await client.wait(m => m.type === 'welcome');
-  assert.equal(welcome.world.seed, 'crash-test'); assert.equal(welcome.worldName, 'Durable world'); assert.equal(welcome.clock.phase, 0.46); assert.equal(welcome.clock.held, true);
+  assert.equal(welcome.world.seed, 'crash-test'); assert.equal(welcome.worldName, 'Durable world');
+  assert.equal(welcome.clock.phase, onDisk.clock.phase); assert.equal(welcome.clock.elapsedSeconds, onDisk.clock.elapsedSeconds);
   const chunk = await client.wait(m => m.type === 'chunk' && m.cx === 15 && m.cz === 15);
-  assert.equal(Buffer.from(chunk.blocks, 'base64')[15 + 16 * (15 + 16 * 8)], LANTERN);
+  assert.equal(Buffer.from(chunk.blocks, 'base64')[15 + 16 * (15 + 16 * 7)], AIR);
 });
 
 test('disk write failures stop broadcasts and later edits instead of acknowledging unsaved changes', async t => {
-  const dir = await directory(t), game = await createGameServer({ host: '127.0.0.1', port: 0, saveDirectory: dir, room: new GameRoom({ gameMode: 'creative' }) });
+  const dir = await directory(t), game = await createGameServer({ host: '127.0.0.1', port: 0, saveDirectory: dir, room: new GameRoom({ gameMode: 'horror' }) });
   t.after(() => game.close()); t.mock.method(console, 'error', () => {});
   const port = game.server.address().port, client = peer(`ws://127.0.0.1:${port}/multiplayer`);
   t.after(() => client.socket.terminate()); await client.wait(m => m.type === 'welcome');
+  const before = JSON.parse(await readFile(path.join(dir, 'world.json'), 'utf8'));
   game.persistence.save = async () => { throw new Error('Disk full'); };
-  client.send({ type: 'command', requestId: 1, method: 'placeLantern', x: 255, y: 8, z: 255, expected: [1, 0, 0, 0] });
+  client.send({ type: 'command', requestId: 1, method: 'edit', x: 255, y: 7, z: 255, block: AIR, expected: [2, 1, 0, 0] });
   assert.equal((await client.wait(m => m.type === 'unavailable')).reason, 'storage');
   assert.equal(client.messages.some(m => m.type === 'edit'), false);
   assert.equal((await fetch(`http://127.0.0.1:${port}/healthz`)).status, 503);
   const preserved = JSON.parse(await readFile(path.join(dir, 'world.json'), 'utf8'));
-  assert.deepEqual(preserved.edits, []);
+  assert.deepEqual(preserved.edits, before.edits);
 });

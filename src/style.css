@@ -284,7 +284,7 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
 .inventory-quantity { top: auto; right: 4px; bottom: 3px; font-size: 15px; font-weight: 700; color: white; text-shadow: 2px 2px 0 #383838; }
 .inventory-crafting { display: block; margin-top: 0; padding: 0 0 15px; background: transparent; border-bottom: 2px solid #999; border-radius: 0; }
 .inventory-crafting h3 { margin-top: 0; }
-.inventory-recipes { display: flex; gap: 7px; }
+.inventory-recipes { display: flex; flex-wrap: wrap; gap: 7px; }
 .inventory-recipes button { display: grid; place-items: center; width: 52px; height: 50px; background: #aaa; border: 2px solid; border-color: #fff #555 #555 #fff; border-radius: 0; }
 .inventory-recipes button[aria-pressed='true'] { background: #87977c; box-shadow: inset 0 0 0 2px #d5e7bc; }
 .inventory-craft-action { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
@@ -441,3 +441,85 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
   .inventory-storage, .inventory-hotbar { gap: 3px; }
   .inventory-quantity { font-size: 12px; right: 2px; bottom: 2px; }
 }
+
+.survival-status { display: none; position: fixed; z-index: 2; top: calc(52px + env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left)); color: #fff4d9; font-size: 13px; text-shadow: 0 1px 3px #000; pointer-events: none; }
+
+.playing .survival-status { display: block; }
+
+.shelter-status { display: none; position: fixed; z-index: 2; top: calc(75px + env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left)); max-width: calc(100vw - 32px); padding: 5px 8px; border-radius: 4px; background: #172a25d9; color: #ead8b8; font-size: 12px; pointer-events: none; }
+.shelter-status[data-state='protected'] { color: #b8f2d9; }
+.shelter-status[data-state='checking'] { color: #d9dfdc; }
+.ward-hint { display: none; position: fixed; z-index: 2; left: 50%; bottom: 140px; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); padding: 8px 12px; border-radius: 4px; background: #172a25ed; color: #eff3e4; font-size: 13px; text-align: center; pointer-events: none; }
+.playing .shelter-status, .playing .ward-hint { display: block; }
+
+/* Contemporary outpost: painted metal, slate surfaces, and cool status lights. */
+:root { color-scheme: dark; color: #dae5e9; }
+.menu, .touch-mode .menu { background: #080f1bb3; }
+.menu-card, .night .menu-card { background: #15212e; color: #e4edf1; border-color: #6f8c9c55; border-radius: 12px; }
+.menu-card .eyebrow, .inventory-header .eyebrow { color: #85c7bd; }
+.menu-card > p, .night .menu-card > p, .menu-card .footnote, .night .menu-card .footnote,
+.saved-world-details, .saved-world-seed, .world-search-label, .connected-players-status,
+.graphics-settings p, .general-settings p, .controls-note, .instructions, .night .instructions { color: #b0c1cc; }
+.menu-card .menu-back, .saved-world-title, .connected-player-name, .session-mode strong { color: #e1edf0; }
+.menu-card .menu-primary, .pause-actions .play-button, .world-library-actions button[data-menu-screen='create'],
+.saved-world-actions button:first-child, .inventory-footer #inventory-back { background: #326b68; border-color: #4b9390; color: #f0ffff; box-shadow: none; }
+.menu-card .menu-primary:hover, .pause-actions .play-button:hover { background: #3d807c; }
+.menu-primary span { color: #ceeeee; }
+.options-actions button, .pause-actions .inventory-toggle, .pause-actions .leave-button,
+.world-library-actions button, .saved-world-actions button, .world-choice, .connected-players,
+.session-mode, .general-settings .sound-toggle, .general-settings .performance-toggle {
+  background: #223444; color: #d6e4eb; border-color: #506778; box-shadow: none;
+}
+.options-actions button:hover, .pause-actions .inventory-toggle:hover, .pause-actions .leave-button:hover { background: #30495b; }
+.world-library .saved-world { background: #1c2c3b; border-color: #3e5668; }
+.world-choice input, .world-choice select, #world-search, #player-name,
+.graphics-settings select, .control-picker select { background: #0f1b28; color: #dce9ef; border-color: #506778; }
+.world-choice label, .player-setting, .graphics-settings legend, .general-settings legend,
+.graphics-settings label, .control-picker, .connected-players-heading h2 { color: #d6e4eb; }
+.graphics-settings, .general-settings, .connected-player-list li, .instructions > span { border-color: #3e5668; }
+#connected-player-count, .world-list-empty { color: #a9bdc8; }
+.connected-player-you, .controls-screen kbd { background: #2f505b; color: #d9efee; }
+.inventory-dialog { background: #172735; color: #dfebf0; border: 1px solid #617a8c; border-radius: 10px; box-shadow: 0 24px 90px #020810b3; }
+.inventory-dialog::backdrop { background: #060e1bc2; }
+.inventory-header > button, .inventory-craft-action button, #inventory-drop-actions button { background: #2a4353; color: #e2eff3; border: 1px solid #617a8c; border-radius: 5px; box-shadow: none; }
+#inventory-description, .inventory-status, .inventory-footer span, #inventory-recipe { color: #adc3cd; }
+.inventory-dialog h3 { color: #c6e5df; }
+.inventory-slot { background: #213746; color: #eef6f8; border: 1px solid #4d6879; border-radius: 4px; }
+.inventory-slot:hover { background: #304f60; }
+.inventory-slot:disabled { cursor: default; }
+.inventory-slot[aria-pressed='true'] { background: #285854; border-color: #8ad1c4; box-shadow: inset 0 0 0 1px #8ad1c4; }
+.inventory-slot-name { background: #0c1825; border: 1px solid #617a8c; border-radius: 4px; }
+.inventory-recipes button { background: #223b4a; border: 1px solid #506f80; border-radius: 4px; }
+.inventory-recipes button[aria-pressed='true'] { background: #32635e; border-color: #91d8c9; }
+.inventory-footer #inventory-back { border: 1px solid #4b9390; border-radius: 5px; }
+.storage-dialog { width: min(760px, calc(100vw - 24px)); }
+.storage-dialog .inventory-card { padding: 20px; }
+.storage-dialog h3 { margin: 18px 0 10px; font-size: 13px; font-weight: 600; }
+.storage-dialog .inventory-slot { height: 52px; min-height: 44px; }
+.storage-dialog .inventory-slot .block-icon { width: 26px; height: 29px; }
+.storage-dialog .inventory-slot .block-icon.slab { height: 14px; margin-top: 15px; background-size: 26px 29px; }
+.storage-dialog .inventory-quantity { top: auto; bottom: 3px; right: 5px; text-shadow: 1px 1px #000; }
+.inventory-dialog :focus-visible, .menu-card :focus-visible { outline: 2px solid #9bded3; outline-offset: 2px; }
+@media (max-width: 650px) {
+  .storage-dialog .inventory-card { padding: 14px; }
+  .storage-dialog .inventory-slot { height: 44px; }
+  .storage-dialog .inventory-slot .block-icon { width: 21px; height: 24px; }
+  .storage-dialog .inventory-slot .block-icon.slab { height: 12px; margin-top: 12px; background-size: 21px 24px; }
+}
+
+.upkeep-dialog { width: min(520px, calc(100vw - 24px)); }
+#upkeep-detail, #upkeep-status { color: #c0d2dc; line-height: 1.65; font-size: 14px; }
+#upkeep-status { color: #99b8c3; font-size: 12px; }
+.upkeep-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0; }
+.upkeep-actions button { min-height: 44px; padding: 11px 15px; border: 1px solid #5c8e90; border-radius: 6px; background: #2b5959; color: #efffff; font: inherit; font-size: 13px; }
+.upkeep-actions button:disabled { opacity: .5; cursor: wait; }
+#resource-guide { margin: 16px 0 0; padding: 12px; border: 1px solid #3e5668; border-radius: 7px; color: #adc3cd; font-size: 12px; line-height: 1.6; text-align: left; }
+
+.structure-strength { position: fixed; z-index: 2; left: 50%; bottom: 195px; transform: translateX(-50%); display: grid; gap: 7px; min-width: 205px; max-width: calc(100vw - 32px); padding: 10px 13px; border: 1px solid #67869588; border-radius: 6px; background: #132534ed; color: #daecee; font-size: 12px; text-align: center; pointer-events: none; }
+.structure-strength[data-damaged='true'] { border-color: #c8a165; color: #f1d9ac; }
+.structure-strength meter { display: block; width: 100%; height: 9px; border: 0; background: #0b1721; accent-color: #85c9b6; }
+.structure-strength meter::-webkit-meter-bar { background: #0b1721; border: 0; border-radius: 3px; }
+.structure-strength meter::-webkit-meter-optimum-value { background: #85c9b6; border-radius: 3px; }
+.structure-strength[data-damaged='true'] meter::-webkit-meter-optimum-value { background: #d8b474; }
+.structure-strength meter::-moz-meter-bar { background: #85c9b6; }
+.touch-mode .structure-strength { bottom: 210px; }

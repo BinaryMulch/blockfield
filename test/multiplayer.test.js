@@ -4,18 +4,22 @@ import { once } from 'node:events';
 import { WebSocket } from 'ws';
 import { GameRoom, MAX_PLAYERS, cleanName, PROTOCOL } from '../server/room.js';
 import { createGameServer, lanURLs } from '../server.js';
-import { World, AIR, GRASS, STONE, PLANKS, SLAB, LANTERN, DAISY, doorState } from '../src/world.js';
+import { World, AIR, GRASS, STONE, PLANKS, SLAB, LANTERN, DAISY, DOOR, doorState } from '../src/world.js';
 
 function fixture() {
   const world = new World({ generate: false });
   for (let x = 0; x < 20; x++) for (let z = 0; z < 20; z++) { world.set(x, 0, z, STONE); world.set(x, 1, z, GRASS); }
-  const room = new GameRoom({ world, gameMode: 'creative' });
+  const room = new GameRoom({ world, gameMode: 'horror' });
   const a = room.join('Alice'), b = room.join('Bob');
+  for (const player of [a, b]) player.inventory.stacks = Array.from({ length: 36 }, (_, i) => i < 5 ? { block: [PLANKS, SLAB, LANTERN, DAISY, DOOR][i], count: 64 } : null);
   for (const [player, x] of [[a, 8.5], [b, 12.5]]) room.move(player.id, { x, y: 2, z: 11.5, yaw: 0, pitch: 0, active: false });
   const edit = (player, method, args = {}) => room.command(player.id, { method, ...args,
+    slot: player.inventory.stacks.findIndex(stack => stack?.block === (args.block === PLANKS && world.get(args.x, args.y, args.z) === SLAB ? SLAB : args.block || { placeDoor: DOOR, placeLantern: LANTERN }[method])),
     ...(Number.isInteger(args.x) ? { expected: room.expected(args.x, args.y, args.z) } : {}) });
   return { room, a, b, edit, world };
 }
+
+const replay = (player, redo = false) => { player.history.spendSlot = undefined; return player.history[redo ? 'redo' : 'undo'](player.pose); };
 
 test('joining gives distinct identities, safe names, full current worlds, and a player limit', () => {
   const room = new GameRoom();
@@ -31,7 +35,7 @@ test('joining gives distinct identities, safe names, full current worlds, and a 
   assert.equal(snapshot.world.size, 512);
   assert.equal(snapshot.blocks, undefined, 'joining must not send the entire world');
   assert.equal(snapshot.players.length, MAX_PLAYERS);
-  assert.equal(snapshot.clock.running, false);
+  assert.equal(snapshot.clock.running, true);
   room.leave(first.id);
   assert.ok(room.join('Replacement'));
 });
@@ -43,7 +47,7 @@ test('concurrent edits cannot overwrite changed cells while unrelated edits both
   assert.equal(edit(a, 'edit', args).ok, true);
   assert.equal(room.command(b.id, { method: 'edit', ...args, expected }).reason, 'changed');
   assert.equal(edit(b, 'edit', { x: 9, y: 2, z: 8, block: PLANKS }).ok, true);
-  assert.equal(edit(a, 'undo').ok, true);
+  assert.equal(replay(a).ok, true);
   assert.equal(world.get(8, 2, 8), AIR);
   assert.equal(world.get(9, 2, 8), PLANKS);
 });
@@ -53,15 +57,15 @@ test('undo detects another player replacing a block with the very same material'
   edit(a, 'edit', { x: 8, y: 2, z: 8, block: PLANKS });
   edit(b, 'edit', { x: 8, y: 2, z: 8, block: AIR });
   edit(b, 'edit', { x: 8, y: 2, z: 8, block: PLANKS });
-  assert.equal(edit(a, 'undo').reason, 'changed');
+  assert.equal(replay(a).reason, 'changed');
   assert.equal(world.get(8, 2, 8), PLANKS);
   assert.equal(a.history.undoStack.length, 1);
   // Undoing Bob's work restores Alice's exact earlier state and lineage.
-  assert.equal(edit(b, 'undo').ok, true);
-  assert.equal(edit(b, 'undo').ok, true);
-  assert.equal(edit(a, 'undo').ok, true);
+  assert.equal(replay(b).ok, true);
+  assert.equal(replay(b).ok, true);
+  assert.equal(replay(a).ok, true);
   assert.equal(world.get(8, 2, 8), AIR);
-  assert.equal(edit(a, 'redo').ok, true);
+  assert.equal(replay(a, true).ok, true);
 });
 
 test('a player can undo and redo several own edits to the same cell', () => {
@@ -69,8 +73,8 @@ test('a player can undo and redo several own edits to the same cell', () => {
   edit(a, 'edit', { x: 8, y: 2, z: 8, block: SLAB });
   edit(a, 'edit', { x: 8, y: 2, z: 8, block: PLANKS });
   edit(a, 'edit', { x: 8, y: 2, z: 8, block: AIR });
-  for (const block of [PLANKS, SLAB, AIR]) { assert.equal(edit(a, 'undo').ok, true); assert.equal(world.get(8, 2, 8), block); }
-  for (const block of [SLAB, PLANKS, AIR]) { assert.equal(edit(a, 'redo').ok, true); assert.equal(world.get(8, 2, 8), block); }
+  for (const block of [PLANKS, SLAB, AIR]) { assert.equal(replay(a).ok, true); assert.equal(world.get(8, 2, 8), block); }
+  for (const block of [SLAB, PLANKS, AIR]) { assert.equal(replay(a, true).ok, true); assert.equal(world.get(8, 2, 8), block); }
 });
 
 test('all players are protected from placement, undo restores, and door swings', () => {
@@ -86,7 +90,7 @@ test('all players are protected from placement, undo restores, and door swings',
   room.move(b.id, { x: 8.5, y: 2, z: 10.5, yaw: 0, pitch: 0 });
   edit(a, 'edit', { x: 8, y: 2, z: 8, block: AIR });
   room.move(b.id, { x: 8.5, y: 2, z: 8.95, yaw: 0, pitch: 0 });
-  assert.equal(edit(a, 'undo').reason, 'blocked');
+  assert.equal(replay(a).reason, 'blocked');
   assert.equal(world.get(8, 2, 8), AIR);
   assert.equal(world.get(8, 3, 8), AIR);
 });
@@ -96,29 +100,25 @@ test('support transactions and exact flower variants survive shared history', ()
   edit(a, 'placeFlower', { x: 8, y: 2, z: 8, block: DAISY });
   const removed = edit(a, 'edit', { x: 8, y: 1, z: 8, block: AIR });
   assert.equal(removed.changes.length, 2);
-  edit(a, 'undo');
+  replay(a);
   assert.equal(world.get(8, 1, 8), GRASS);
   assert.equal(world.get(8, 2, 8), DAISY);
   assert.equal(edit(a, 'placeLantern', { x: 8, y: 2, z: 8 }).ok, true);
   assert.equal(world.get(8, 2, 8), LANTERN);
-  edit(a, 'undo');
+  replay(a);
   assert.equal(world.get(8, 2, 8), DAISY);
 });
 
-test('shared time advances only while someone is playing and accepts either player controls', () => {
+test('shared time runs while connected in menus, pauses on the last departure, and refuses time controls', () => {
   const { room, a, b, edit } = fixture();
-  const initial = room.clock.phase;
-  room.advance(30); assert.equal(room.clock.phase, initial);
-  room.move(a.id, { ...a.pose, active: true });
-  room.advance(30); assert.ok(room.clock.phase > initial);
-  edit(b, 'time', { action: 'hold' });
-  const held = room.clock.phase;
-  room.advance(30); assert.equal(room.clock.phase, held);
-  edit(a, 'time', { action: 'next' });
-  assert.equal(room.clock.phase, 0.46);
-  assert.equal(room.clock.held, true);
-  assert.equal(room.clockState().running, true);
-  room.leave(a.id); assert.equal(room.clockState().running, false);
+  room.advance(30); assert.equal(room.clock.elapsedSeconds, 30);
+  assert.equal(edit(b, 'time', { action: 'hold' }).reason, 'restricted');
+  assert.equal(edit(a, 'time', { action: 'next' }).reason, 'restricted');
+  assert.equal(room.clock.held, false);
+  room.leave(a.id); room.advance(30); assert.equal(room.clock.elapsedSeconds, 60);
+  room.leave(b.id); const paused = room.clock.snapshot();
+  room.advance(3600); assert.deepEqual(room.clock.snapshot(), paused);
+  assert.equal(room.clockState().running, false);
 });
 
 test('invalid poses and commands, remote edits, and foundation edits are rejected', () => {
@@ -161,19 +161,20 @@ test('real WebSockets share edits, join snapshots, time, departure, and session 
   a.send({ type: 'pose', pose: { x: 8.5, y: 2, z: 11.5, yaw: 0, pitch: 0, active: true } });
   await a.wait(m => m.type === 'chunk' && m.cx === 0 && m.cz === 0);
   await b.wait(m => m.type === 'chunk' && m.cx === 0 && m.cz === 0);
-  a.send({ type: 'command', requestId: 1, method: 'placeFlower', x: 8, y: 2, z: 8, block: DAISY, expected: room.expected(8, 2, 8) });
+  a.send({ type: 'command', requestId: 1, method: 'edit', x: 8, y: 1, z: 8, block: AIR, expected: room.expected(8, 1, 8) });
   const ae = await a.wait(m => m.type === 'edit');
   const be = await b.wait(m => m.type === 'edit');
-  assert.deepEqual(ae, be); assert.equal(ae.by, aw.self.id); assert.equal(ae.updates[0].changes[0].to, DAISY);
+  assert.deepEqual(ae, be); assert.equal(ae.by, aw.self.id); assert.equal(ae.updates[0].changes[0].to, AIR);
   const c = connect(url, 'Late arrival', origin);
   t.after(() => c.socket.terminate());
   const cw = await c.wait(m => m.type === 'welcome');
   const chunk = await c.wait(m => m.type === 'chunk' && m.cx === 0 && m.cz === 0);
   const lateWorld = new Uint8Array(Buffer.from(chunk.blocks, 'base64'));
-  assert.equal(lateWorld[8 + 16 * (8 + 16 * 2)], DAISY);
+  assert.equal(lateWorld[8 + 16 * (8 + 16 * 1)], AIR);
   assert.equal(cw.revision, 1);
   b.send({ type: 'command', requestId: 1, method: 'time', action: 'next' });
-  assert.equal((await c.wait(m => m.type === 'clock')).clock.phase, 0.46);
+  assert.equal((await b.wait(m => m.type === 'result' && m.requestId === 1)).reason, 'restricted');
+  assert.equal(cw.clock.running, true);
   const departed = once(c.socket, 'close'); c.socket.close(); await departed;
   await a.wait(m => m.type === 'players' && m.players.length === 2);
   const response = await fetch(`${origin}/api/session`);
@@ -192,8 +193,8 @@ test('cross-origin WebSocket upgrades are refused', async t => {
   assert.equal(status, 403);
 });
 
-test('separated players stream independent neighborhoods and far undo acknowledges without sending unrelated terrain', async t => {
-  const game = await createGameServer({ host: '127.0.0.1', port: 0, room: new GameRoom({ gameMode: 'creative' }) });
+test('separated players stream independent neighborhoods and forbidden history leaves distant builds intact', async t => {
+  const game = await createGameServer({ host: '127.0.0.1', port: 0, room: new GameRoom({ gameMode: 'horror' }) });
   t.after(() => game.close());
   const port = game.server.address().port, url = `ws://127.0.0.1:${port}/multiplayer`;
   const a = connect(url, 'Explorer'), b = connect(url, 'Builder');
@@ -203,7 +204,7 @@ test('separated players stream independent neighborhoods and far undo acknowledg
   assert.equal(welcome.blocks, undefined);
   await a.wait(m => m.type === 'chunk' && m.cx === 15 && m.cz === 15);
   await b.wait(m => m.type === 'chunk' && m.cx === 15 && m.cz === 15);
-  a.send({ type: 'command', requestId: 1, method: 'edit', x: 255, y: 8, z: 255, block: PLANKS, expected: game.room.expected(255, 8, 255) });
+  a.send({ type: 'command', requestId: 1, method: 'edit', x: 255, y: 7, z: 255, block: AIR, expected: game.room.expected(255, 7, 255) });
   assert.equal((await a.wait(m => m.type === 'result' && m.requestId === 1)).ok, true);
   a.send({ type: 'pose', pose: { x: 400.5, y: 20, z: 400.5, yaw: 0, pitch: 0, flying: true, active: true } });
   await a.wait(m => m.type === 'unload' && m.keys.includes('15,15'));
@@ -211,13 +212,12 @@ test('separated players stream independent neighborhoods and far undo acknowledg
   assert.ok(game.room.world.chunks.size > 150 && game.room.world.chunks.size <= 242);
   assert.equal(b.messages.some(m => m.type === 'chunk' && m.cx === 25 && m.cz === 25), false);
   a.send({ type: 'command', requestId: 2, method: 'undo' });
-  assert.equal((await a.wait(m => m.type === 'result' && m.requestId === 2)).ok, true);
-  await b.wait(m => m.type === 'edit' && m.updates.some(update => update.changes.some(c => c.to === AIR)));
+  assert.equal((await a.wait(m => m.type === 'result' && m.requestId === 2)).reason, 'restricted');
   a.send({ type: 'command', requestId: 3, method: 'redo' });
-  assert.equal((await a.wait(m => m.type === 'result' && m.requestId === 3)).ok, true);
+  assert.equal((await a.wait(m => m.type === 'result' && m.requestId === 3)).reason, 'restricted');
   a.send({ type: 'pose', pose: { x: 256.5, y: 8, z: 256.5, yaw: 0, pitch: 0, active: true } });
-  const restored = await a.wait(m => m.type === 'chunk' && m.cx === 15 && m.cz === 15 && m.revision === 3);
-  assert.equal(Buffer.from(restored.blocks, 'base64')[15 + 16 * (15 + 16 * 8)], PLANKS);
+  const restored = await a.wait(m => m.type === 'chunk' && m.cx === 15 && m.cz === 15 && m.revision === 1);
+  assert.equal(Buffer.from(restored.blocks, 'base64')[15 + 16 * (15 + 16 * 7)], AIR);
   const health = await (await fetch(`http://127.0.0.1:${port}/healthz`)).json();
   assert.equal(health.ok, true); assert.equal(health.players, 2); assert.ok(health.loadedChunks <= 242);
 });

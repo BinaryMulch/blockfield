@@ -1,4 +1,4 @@
-import { World, AIR, HEIGHT, isBlock, isFlower, blockBounds, doorState } from './world.js';
+import { World, AIR, HEIGHT, WARD_LANTERN, isBlock, isFlower, blockBounds, doorState } from './world.js';
 import { CHUNK_SIZE, WORLD_SIZE, GENERATOR_VERSION, chunkKey, chunkIndex, generateChunk } from './generation.js';
 
 export class ChunkWorld extends World {
@@ -22,6 +22,7 @@ export class ChunkWorld extends World {
     this.spawn = { x: this.size / 2, z: this.size / 2 };
     this.autoGenerate = false; this.retainEdits = retainEdits;
     this.chunks.clear(); this.edits.clear(); this.revisions.clear(); this.serial++;
+    this.shelterRevisions = new Map(); this.wardChunks.clear();
   }
   contains(x, y, z) { return Number.isInteger(x) && Number.isInteger(y) && Number.isInteger(z) && x >= 0 && x < this.size && z >= 0 && z < this.size && y >= 0 && y < HEIGHT; }
   keyAt(x, z) { return chunkKey(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE)); }
@@ -41,6 +42,14 @@ export class ChunkWorld extends World {
     if (this.retainEdits) for (const [index, block] of this.edits.get(key) || []) blocks[index] = block;
     const chunk = { cx, cz, key, blocks, revision, serial: ++this.serial };
     this.chunks.set(key, chunk);
+    this.touchShelterChunk(cx, cz);
+    this.wardChunks.delete(key);
+    // Generation never creates wards, so this normally exits in native code.
+    // A snapshot with wards is indexed once on arrival, not on HUD updates.
+    if (blocks.includes(WARD_LANTERN)) for (let i = 0; i < blocks.length; i++) if (blocks[i] === WARD_LANTERN) {
+      if (!this.wardChunks.has(key)) this.wardChunks.set(key, new Map());
+      this.wardChunks.get(key).set(i, { x: cx * 16 + i % 16, y: Math.floor(i / 256), z: cz * 16 + Math.floor(i / 16) % 16 });
+    }
     return chunk;
   }
 
@@ -54,8 +63,10 @@ export class ChunkWorld extends World {
     const chunk = this.getChunk(Math.floor(x / CHUNK_SIZE), Math.floor(z / CHUNK_SIZE));
     if (!chunk) return false;
     const index = this.indexAt(x, y, z);
+    if (chunk.blocks[index] === block) return true;
     chunk.blocks[index] = block;
     chunk.revision++; chunk.serial = ++this.serial;
+    this.touchShelter(x, y, z, block);
     if (this.retainEdits) {
       if (!this.edits.has(chunk.key)) this.edits.set(chunk.key, new Map());
       this.edits.get(chunk.key).set(index, block);
@@ -72,7 +83,7 @@ export class ChunkWorld extends World {
     for (const update of updates) {
       const chunk = this.chunks.get(update.key);
       if (!chunk) continue;
-      for (const c of update.changes) chunk.blocks[this.indexAt(c.x, c.y, c.z)] = c.to;
+      for (const c of update.changes) { chunk.blocks[this.indexAt(c.x, c.y, c.z)] = c.to; this.touchShelter(c.x, c.y, c.z, c.to); }
       chunk.revision = update.revision; chunk.serial = ++this.serial;
     }
     return true;
@@ -92,7 +103,9 @@ export class ChunkWorld extends World {
     for (const [key, chunk] of this.chunks) {
       if (centers.some(p => Math.abs(chunk.cx - Math.floor(p.x / CHUNK_SIZE)) <= radius && Math.abs(chunk.cz - Math.floor(p.z / CHUNK_SIZE)) <= radius)) continue;
       this.chunks.delete(key); removed.push(key);
+      this.touchShelterChunk(chunk.cx, chunk.cz); this.wardChunks.delete(key);
     }
+    if (removed.length) this.serial++;
     return removed;
   }
 

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { HEIGHT } from './world.js';
 import { CHUNK_SIZE, nearbyChunks, chunkKey } from './generation.js';
 import { WorldJobs } from './jobs.js';
+import { DamageState } from './damage.js';
 
 export class ChunkRenderer {
   chunks = new Map();
@@ -12,6 +13,7 @@ export class ChunkRenderer {
   busy = false;
 
   constructor(scene, world, materials, onChange, onError) {
+    this.damage = new DamageState(world);
     this.world = world; this.materials = materials; this.onChange = onChange; this.onError = onError;
     for (const mode of Object.keys(materials)) {
       const group = new THREE.Group();
@@ -24,7 +26,7 @@ export class ChunkRenderer {
     const meshes = this.chunks.get(key);
     if (!meshes) return;
     for (const [mode, mesh] of Object.entries(meshes)) { this.groups[mode].remove(mesh); mesh.geometry.dispose(); }
-    this.chunks.delete(key);
+    this.chunks.delete(key); this.damage.geometries.delete(key);
     this.onChange();
   }
 
@@ -53,6 +55,7 @@ export class ChunkRenderer {
   readyAt(position) { return nearbyChunks(position.x, position.z, 3, this.world.size).every(chunk => this.chunks.has(chunk.key)); }
 
   update(position) {
+    this.damage.prune();
     const wanted = nearbyChunks(position.x, position.z, 3, this.world.size), keys = new Set(wanted.map(chunk => chunk.key));
     for (const key of this.chunks.keys()) if (!keys.has(key) || !this.world.chunks.has(key)) this.remove(key);
     for (const key of this.dirty) if (!keys.has(key)) this.dirty.delete(key);
@@ -76,9 +79,11 @@ export class ChunkRenderer {
         if (!data.index.length) continue;
         const geometry = new THREE.BufferGeometry();
         for (const [name, array] of Object.entries(data)) {
+          if (name === 'damageRanges') continue;
           if (name === 'index') geometry.setIndex(new THREE.BufferAttribute(array, 1));
           else geometry.setAttribute(name, new THREE.BufferAttribute(array, name === 'uv' ? 2 : 3));
         }
+        if (mode === 'solid') this.damage.bind(next.key, geometry, data.damageRanges || new Uint32Array());
         geometry.computeBoundingSphere();
         const mesh = new THREE.Mesh(geometry, this.materials[mode]);
         mesh.name = `${mode}-${next.key}`;

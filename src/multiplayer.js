@@ -3,7 +3,7 @@ import { CHUNK_SIZE } from './generation.js';
 import { HEIGHT } from './world.js';
 import { newWorldId, validPlayerToken } from './saves.js';
 
-const PROTOCOL = 5;
+const PROTOCOL = 11;
 export class MultiplayerClient {
   ready = false;
   selfId = null;
@@ -38,6 +38,7 @@ export class MultiplayerClient {
     });
     socket.addEventListener('close', () => {
       if (this.socket !== socket || this.stopped) return;
+      this.syncClock({ ...this.clock, phase: this.phase(), elapsedSeconds: this.elapsedSeconds(), running: false });
       this.ready = false;
       for (const { resolve, timer } of this.pending.values()) { clearTimeout(timer); resolve({ ok: false, reason: 'disconnected' }); }
       this.pending.clear();
@@ -58,6 +59,10 @@ export class MultiplayerClient {
 
   phase() {
     return (this.clock.phase + (!this.clock.held && this.clock.running ? (performance.now() - this.clockReceived) / 1000 / DAY_LENGTH : 0)) % 1;
+  }
+
+  elapsedSeconds() {
+    return (this.clock.elapsedSeconds || 0) + (this.clock.running ? (performance.now() - this.clockReceived) / 1000 : 0);
   }
 
   receive(message) {
@@ -85,6 +90,7 @@ export class MultiplayerClient {
       this.callbacks.welcome?.(message);
       this.callbacks.drops?.(message.drops || []);
       this.callbacks.players?.(message.players);
+      this.callbacks.shelter?.(message.shelter);
       return;
     }
     if (!this.ready) return;
@@ -92,6 +98,7 @@ export class MultiplayerClient {
       const raw = atob(message.blocks);
       if (raw.length !== CHUNK_SIZE * CHUNK_SIZE * HEIGHT) throw new Error('Invalid chunk');
       const chunk = this.world.putChunk(message.cx, message.cz, Uint8Array.from(raw, character => character.charCodeAt(0)), message.revision);
+      this.callbacks.constructionChunk?.({ key: chunk.key, damage: message.construction || [] });
       this.callbacks.chunks?.([chunk.key]);
     } else if (message.type === 'unload') {
       for (const key of message.keys) this.world.chunks.delete(key);
@@ -99,6 +106,7 @@ export class MultiplayerClient {
     } else if (message.type === 'players') {
       this.syncClock(message.clock);
       this.callbacks.players?.(message.players);
+      this.callbacks.shelter?.(message.shelter);
     } else if (message.type === 'clock') this.syncClock(message.clock);
     else if (message.type === 'edit') {
       const changes = message.updates.filter(update => this.world.chunks.has(update.key)).flatMap(update => update.changes);
@@ -111,10 +119,14 @@ export class MultiplayerClient {
       if (changes.length) this.callbacks.edit?.({ ...message, changes });
     } else if (message.type === 'drops') this.callbacks.drops?.(message.drops);
     else if (message.type === 'supplies') this.callbacks.supplies?.(message.inventory);
-    else if (message.type === 'result') this.resolve(message.requestId, { ok: message.ok, reason: message.reason, moved: message.moved, swapped: message.swapped });
+    else if (message.type === 'upkeep') this.callbacks.upkeep?.(message.info);
+    else if (message.type === 'storage') this.callbacks.storage?.(message.storage);
+    else if (message.type === 'construction') this.callbacks.construction?.(message.damage);
+    else if (message.type === 'result') this.resolve(message.requestId, { ok: message.ok, reason: message.reason, moved: message.moved, swapped: message.swapped, storage: message.storage, remaining: message.remaining, info: message.info, message: message.message });
   }
 
   disconnect() {
+    this.syncClock({ ...this.clock, phase: this.phase(), elapsedSeconds: this.elapsedSeconds(), running: false });
     this.stopped = true; this.ready = false;
     clearTimeout(this.retry);
     const socket = this.socket; this.socket = null;
@@ -160,7 +172,7 @@ export class MultiplayerClient {
 
   edit(x, y, z, block) { return this.request('edit', { x, y, z, block }); }
   placeDoor(x, y, z, facing) { return this.request('placeDoor', { x, y, z, facing }); }
-  placeLantern(x, y, z) { return this.request('placeLantern', { x, y, z }); }
+  placeLantern(x, y, z, block) { return this.request('placeLantern', { x, y, z, block }); }
   placeFlower(x, y, z, block) { return this.request('placeFlower', { x, y, z, block }); }
   toggleDoor(x, y, z) { return this.request('toggleDoor', { x, y, z }); }
   undo() { return this.request('undo'); }

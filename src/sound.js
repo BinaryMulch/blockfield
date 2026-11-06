@@ -1,6 +1,14 @@
-import { GRASS, DIRT, STONE, WOOD, LEAVES, SAND, WATER, PLANKS, BRICKS, GLASS, DOOR, LANTERN, SLAB, RED_FLOWER, isFlower, buildBlock } from './world.js';
+import { GRASS, DIRT, STONE, WOOD, LEAVES, SAND, WATER, PLANKS, BRICKS, GLASS, DOOR, LANTERN, WARD_LANTERN, CONCRETE, REINFORCED_PANEL, STORAGE_CABINET, SECURITY_DOOR, SLAB, RED_FLOWER, SAPLING, SCRAP, BIOFUEL, REPAIR_TOOL, isFlower, buildBlock } from './world.js';
 
 const MATERIALS = {
+  [SAPLING]: { tone: 260, cutoff: 1300, noise: .8, ring: .1, decay: .6 },
+  [SCRAP]: { tone: 220, cutoff: 2000, noise: .2, ring: .7, decay: .6 },
+  [BIOFUEL]: { tone: 200, cutoff: 1600, noise: .2, ring: .4, decay: .5 },
+  [REPAIR_TOOL]: { tone: 270, cutoff: 2400, noise: .2, ring: .7, decay: .6 },
+  [CONCRETE]: { tone: 95, cutoff: 700, noise: .8, ring: .1, decay: .7 },
+  [REINFORCED_PANEL]: { tone: 170, cutoff: 1800, noise: .3, ring: .7, decay: .8 },
+  [STORAGE_CABINET]: { tone: 210, cutoff: 2100, noise: .25, ring: .7, decay: .75 },
+  [SECURITY_DOOR]: { tone: 150, cutoff: 1500, noise: .25, ring: .7, decay: .9 },
   [GRASS]: { tone: 115, cutoff: 1800, noise: 0.8, ring: 0.28, decay: 1 },
   [DIRT]: { tone: 85, cutoff: 1100, noise: 0.7, ring: 0.4, decay: 0.9 },
   [STONE]: { tone: 510, cutoff: 4800, noise: 0.4, ring: 0.55, decay: 0.65 },
@@ -13,6 +21,7 @@ const MATERIALS = {
   [GLASS]: { tone: 1300, cutoff: 6200, noise: 0.25, ring: 0.45, decay: 0.8 },
   [DOOR]: { tone: 210, cutoff: 1300, noise: 0.3, ring: 0.6, decay: 0.9 },
   [LANTERN]: { tone: 620, cutoff: 3100, noise: 0.15, ring: 0.6, decay: 0.65 },
+  [WARD_LANTERN]: { tone: 740, cutoff: 3600, noise: 0.05, ring: 0.8, decay: 1 },
   [SLAB]: { tone: 285, cutoff: 1950, noise: 0.25, ring: 0.65, decay: 0.65 },
   [RED_FLOWER]: { tone: 380, cutoff: 2500, noise: 0.65, ring: 0.12, decay: 0.6 },
 };
@@ -24,6 +33,8 @@ const ACTIONS = {
   close: { duration: 0.16, volume: 0.5, pitch: 1.05, seed: 5 },
   splash: { duration: 0.48, volume: 0.8, pitch: 0.75, seed: 6 },
   swim: { duration: 0.22, volume: 0.1, pitch: 0.6, seed: 7 },
+  ward_on: { duration: .65, volume: .24, pitch: 1.1, seed: 8 },
+  ward_off: { duration: .5, volume: .22, pitch: .65, seed: 9 },
 };
 
 export const SOUND_DISTANCE = 32;

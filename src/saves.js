@@ -1,9 +1,12 @@
-import { HEIGHT, isBlock } from './world.js';
+import { HEIGHT, buildBlock, isBlock, isCabinet, SAPLING, WARD_LANTERN, SALVAGE_CRATE } from './world.js';
 import { CHUNK_SIZE, WORLD_SIZE, GENERATOR_VERSION } from './generation.js';
 import { validInventory, GAME_MODES } from './inventory.js';
 import { validDrops } from './drops.js';
+import { GAME_MODE, validHorrorState } from './horror.js';
+import { validInfrastructure } from './infrastructure.js';
+import { validUpkeep } from './upkeep.js';
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 5;
 export const SAVE_FORMAT = 'blockfield-world';
 export const MAX_SAVE_BYTES = 128 * 1024 * 1024;
 export const validPlayerToken = token => typeof token === 'string' && /^[a-f0-9-]{32,80}$/i.test(token);
@@ -16,7 +19,7 @@ export function newWorldId() {
 }
 
 export function validateSave(save) {
-  if (!save || typeof save !== 'object' || save.format !== SAVE_FORMAT || save.version !== SAVE_VERSION) {
+  if (!save || typeof save !== 'object' || save.format !== SAVE_FORMAT || ![1, 2, 3, 4, SAVE_VERSION].includes(save.version)) {
     throw new SaveError('This world uses an unsupported save format. Its data has not been changed.', 'SAVE_INCOMPATIBLE');
   }
   const metadata = save.world;
@@ -44,11 +47,14 @@ export function validateSave(save) {
     }
   }
   if (save.player && !validPose(save.player, metadata.size)) throw new SaveError('The saved player position is invalid.');
-  if (save.gameMode !== undefined && !GAME_MODES.includes(save.gameMode)) throw new SaveError('This world uses an unsupported game mode.', 'SAVE_INCOMPATIBLE');
+  if (save.gameMode !== undefined && ![...GAME_MODES, 'creative', 'gather'].includes(save.gameMode)) throw new SaveError('This world uses an unsupported game mode.', 'SAVE_INCOMPATIBLE');
+  if (save.gameMode === GAME_MODE && save.horror?.version !== undefined && save.horror.version !== 1) throw new SaveError('This survival world needs a newer game version. Its data has not been changed.', 'SAVE_INCOMPATIBLE');
+  if (save.gameMode === GAME_MODE && (!Number.isFinite(save.clock.elapsedSeconds) || save.clock.elapsedSeconds < 0 || save.clock.elapsedSeconds > Number.MAX_SAFE_INTEGER
+    || !Number.isSafeInteger(save.clock.day) || save.clock.day < 1 || save.clock.held || !validHorrorState(save.horror, metadata.size))) throw new SaveError('The saved survival state is invalid.');
   if (save.inventory?.version !== undefined && ![1, 2, 3].includes(save.inventory.version)) throw new SaveError('This hotbar needs a newer game version. Its data has not been changed.', 'SAVE_INCOMPATIBLE');
   if (save.inventory !== undefined && !validInventory(save.inventory)) throw new SaveError('The saved hotbar is invalid.');
-  if (save.gameMode === 'gather' && save.inventory && save.inventory.version === 1) throw new SaveError('The saved supplies are invalid.');
-  if (save.inventory?.mode === 'gather' && save.gameMode !== 'gather') throw new SaveError('The saved supplies do not match this world mode.');
+  if (['gather', GAME_MODE].includes(save.gameMode) && save.inventory && save.inventory.version === 1) throw new SaveError('The saved supplies are invalid.');
+  if (save.inventory?.mode === 'gather' && !['gather', GAME_MODE].includes(save.gameMode)) throw new SaveError('The saved supplies do not match this world mode.');
   if (save.profiles !== undefined) {
     if (!Array.isArray(save.profiles) || save.profiles.length > 10000) throw new SaveError('The saved player supplies are invalid.');
     const tokens = new Set();
@@ -58,8 +64,37 @@ export function validateSave(save) {
     }
   }
   if (save.saveRevision !== undefined && (!Number.isSafeInteger(save.saveRevision) || save.saveRevision < 0)) throw new SaveError('The saved world revision is invalid.');
-  if (save.drops !== undefined && (save.gameMode !== 'gather' || !validDrops(save.drops, metadata.size))) throw new SaveError('The saved dropped items are invalid.');
+  if (save.drops !== undefined && (!['gather', GAME_MODE].includes(save.gameMode) || !validDrops(save.drops, metadata.size))) throw new SaveError('The saved dropped items are invalid.');
+  if (!validInfrastructure(save.containers, save.construction, metadata.size)) throw new SaveError('The saved storage or construction is invalid.');
+  const edits = new Map(save.edits), attachedChunks = new Map();
+  const editedBlock = c => {
+    const key = `${Math.floor(c.x / CHUNK_SIZE)},${Math.floor(c.z / CHUNK_SIZE)}`;
+    // Index only chunks with stored supplies or damage, without copying every
+    // edited cell in the world on each save checkpoint.
+    if (!attachedChunks.has(key)) attachedChunks.set(key, new Map(edits.get(key) || []));
+    return attachedChunks.get(key).get(c.x % CHUNK_SIZE + c.z % CHUNK_SIZE * CHUNK_SIZE + c.y * CHUNK_SIZE * CHUNK_SIZE);
+  };
+  if ((save.containers || []).some(c => !isCabinet(editedBlock(c))) || (save.construction || []).some(d => buildBlock(editedBlock(d)) !== d.block)) throw new SaveError('Stored supplies or damage do not match the world blocks.');
+  if (save.upkeep?.version !== undefined && save.upkeep.version !== 1) throw new SaveError('This upkeep state needs a newer game version.', 'SAVE_INCOMPATIBLE');
+  if (!validUpkeep(save.upkeep, metadata.size, save.clock.elapsedSeconds ?? 0)) throw new SaveError('The saved resource upkeep is invalid.');
+  if (save.upkeep && (save.upkeep.plants.some(p => editedBlock(p) !== SAPLING + p.stage) || save.upkeep.wards.some(p => editedBlock(p) !== WARD_LANTERN) || save.upkeep.salvage.some(p => editedBlock(p) !== SALVAGE_CRATE))) throw new SaveError('Saved upkeep does not match world blocks.');
   return save;
+}
+
+// Migration never stamps a cabin over a player's existing builds. Legacy
+// Creative hotbars have no owned quantities, so become empty finite supplies.
+export function migrateSave(value, now = Date.now()) {
+  validateSave(value);
+  const save = structuredClone(value);
+  save.version = SAVE_VERSION;
+  if (save.gameMode === GAME_MODE) return save;
+  save.gameMode = GAME_MODE;
+  save.horror = { version: 1, cabin: null };
+  save.clock = { phase: save.clock.phase, held: false, elapsedSeconds: 0, day: 1 };
+  if (save.inventory?.version === 1) save.inventory = { version: 3, mode: 'gather', stacks: Array(36).fill(null), selected: save.inventory.selected };
+  if (save.player) save.player.flying = false;
+  for (const drop of save.drops || []) drop.readyAt = Math.min(1500, Math.max(0, drop.readyAt - now));
+  return validateSave(save);
 }
 
 export function validPose(pose, size = WORLD_SIZE) {
@@ -68,12 +103,14 @@ export function validPose(pose, size = WORLD_SIZE) {
     && Math.abs(pose.pitch) <= Math.PI / 2 + 0.01 && typeof pose.flying === 'boolean';
 }
 
-export function captureSave({ world, id, name, createdAt, clock, player, inventory, gameMode = 'creative', profiles, drops }) {
+export function captureSave({ world, id, name, createdAt, clock, player, inventory, gameMode = GAME_MODE, profiles, drops, containers, construction, upkeep, horror = { version: 1, cabin: null } }) {
   const save = { format: SAVE_FORMAT, version: SAVE_VERSION, id, name: name.trim().slice(0, 40) || 'My world', createdAt,
-    updatedAt: Date.now(), world: world.metadata(), clock: { phase: clock.phase, held: clock.held },
+    updatedAt: Date.now(), world: world.metadata(), clock: { phase: clock.phase, held: gameMode === GAME_MODE ? false : clock.held,
+      elapsedSeconds: clock.elapsedSeconds ?? 0, day: clock.day ?? 1 },
     edits: [...world.edits].map(([key, cells]) => [key, [...cells]]), gameMode };
+  if (gameMode === GAME_MODE) save.horror = structuredClone(horror);
   if (player) {
-    const pose = { x: player.x, y: player.y, z: player.z, yaw: player.yaw % (Math.PI * 2), pitch: player.pitch, flying: player.flying === true };
+    const pose = { x: player.x, y: player.y, z: player.z, yaw: player.yaw % (Math.PI * 2), pitch: player.pitch, flying: gameMode !== GAME_MODE && player.flying === true };
     if (validPose(pose, world.size)) save.player = pose;
   }
   if (inventory) {
@@ -82,6 +119,9 @@ export function captureSave({ world, id, name, createdAt, clock, player, invento
   }
   if (profiles) save.profiles = profiles.map(([token, inventory]) => [token, structuredClone(inventory)]);
   if (drops) save.drops = structuredClone(drops);
+  if (containers) save.containers = structuredClone(containers);
+  if (upkeep) save.upkeep = structuredClone(upkeep);
+  if (construction) save.construction = structuredClone(construction);
   return validateSave(save);
 }
 
@@ -89,4 +129,5 @@ export function restoreEdits(world, save) {
   validateSave(save);
   world.edits = new Map(save.edits.map(([key, cells]) => [key, new Map(cells)]));
   world.chunks.clear(); world.revisions.clear(); world.serial++;
+  world.shelterRevisions = new Map(); world.wardChunks.clear();
 }

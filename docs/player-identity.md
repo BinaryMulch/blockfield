@@ -6,17 +6,17 @@ The goal is to let a player recover the same multiplayer inventory after clearin
 
 ## Current behavior
 
-Gather inventories are stored on the server, keyed by a random secret `playerToken`. The browser keeps that token in local storage under `blockfield-player-token` and sends it when joining. The host saves inventory profiles with the world. Two players with the same display name have separate inventories when their tokens differ, and simultaneous connections using the same Gather token are refused.
+Survival inventories are stored on the server, keyed by a random secret `playerToken`. The browser keeps that token in local storage under `blockfield-player-token` and sends it when joining. The host saves inventory profiles with the world. Two players with the same display name have separate inventories when their tokens differ, and simultaneous connections using the same inventory token are refused.
 
 The connection ID changes each time someone joins; it does not determine inventory ownership. The persistent token does. Anyone possessing that token can claim its inventory, so it must remain secret.
 
-Clearing website data, switching browsers, or using a different site address can leave the player without the token. The inventory remains on the server, but there is no automatic recovery. Creative supplies are unlimited, and Creative hotbar layouts are currently saved locally in the browser.
+Clearing website data, switching browsers, or using a different site address can leave the player without the token. The inventory remains on the server, but there is no automatic recovery.
 
 ## Proposed account design
 
 - Assign each player account a permanent, server-generated UUID. Display names remain changeable and do not grant inventory access.
 - Require sign-in to establish ownership. Username and password sign-in is the baseline proposal; passkeys remain an option. Store password hashes using a suitable password hashing algorithm, such as Argon2id.
-- Associate each Gather inventory with the account UUID and world ID. The server derives ownership from the authenticated connection rather than accepting an arbitrary inventory owner from the client.
+- Associate each survival inventory with the account UUID and world ID. The server derives ownership from the authenticated connection rather than accepting an arbitrary inventory owner from the client.
 - Use an expiring session cookie with `HttpOnly`, `Secure`, and an explicit `SameSite` policy over HTTPS. Clearing browser data signs the player out; signing in restores access to the same account and inventory.
 - Provide recovery codes stored securely by the player, with hashes retained on the server. Define code replacement and account recovery before rollout.
 - Back up account records, credentials, inventory ownership, and world data together so recovery preserves their associations.
@@ -32,7 +32,7 @@ A player who has already lost the token cannot prove ownership through a display
 - Password sign-in, passkeys, or both; whether accounts need email addresses.
 - Registration and host-assisted recovery rules for a family or friends server.
 - HTTPS and certificate setup for the existing LAN address and port workflow.
-- Whether guest play remains available and whether Creative hotbar layouts should sync to accounts.
+- Whether guest play remains available.
 
 ## Acceptance checks for future implementation
 

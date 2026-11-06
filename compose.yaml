@@ -9,7 +9,6 @@ services:
       PORT: 6200
       WORLD_NAME: "${WORLD_NAME:-Blockfield Together}"
       WORLD_SEED: "${WORLD_SEED:-Blockfield}"
-      GAME_MODE: "${GAME_MODE:-gather}"
       DATA_DIR: /app/data
     volumes:
       - blockfield-data:/app/data

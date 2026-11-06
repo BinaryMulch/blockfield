@@ -28,7 +28,7 @@ test('gather network changes checkpoint supplies and blocks together and restore
   try {
     game = await createGameServer({ host: '127.0.0.1', port: 0, saveDirectory: directory });
     const token = randomUUID(), a = await client(game.server.address().port, token); sockets.push(a.socket);
-    const welcome = await a.next(m => m.type === 'welcome'); assert.equal(welcome.gameMode, 'gather');
+    const welcome = await a.next(m => m.type === 'welcome'); assert.equal(welcome.gameMode, 'horror');
     const x = Math.floor(welcome.self.x), y = Math.floor(welcome.self.y) - 1, z = Math.floor(welcome.self.z), block = game.room.world.get(x, y, z);
     a.socket.send(JSON.stringify({ type: 'command', requestId: 1, method: 'edit', x, y, z, block: AIR, expected: game.room.expected(x, y, z) }));
     const supplies = await a.next(m => m.type === 'supplies'); assert.equal(count(supplies.inventory, block), 1);
@@ -55,7 +55,7 @@ test('gather network changes checkpoint supplies and blocks together and restore
     const again = await restored.next(m => m.type === 'welcome');
     assert.equal(count(again.inventory, block), 1); assert.equal(again.worldId, welcome.worldId); assert.equal(again.inventory.stacks[9].count, 1); assert.equal(game.room.world.get(x, y, z), AIR);
     restored.socket.send(JSON.stringify({ type: 'command', requestId: 1, method: 'undo' }));
-    assert.equal((await restored.next(m => m.type === 'result')).reason, 'empty', 'history resets but supplies persist');
+    assert.equal((await restored.next(m => m.type === 'result')).reason, 'restricted', 'Horror refuses undo while supplies persist');
     restored.socket.send(JSON.stringify({ type: 'command', requestId: 2, method: 'inventory', action: 'move', source: 9, target: 0, amount: 1, expectedSource: again.inventory.stacks[9], expectedTarget: null }));
     assert.equal((await restored.next(m => m.type === 'result' && m.requestId === 2)).ok, true);
     restored.socket.send(JSON.stringify({ type: 'pose', pose: { x: x + 2.5, y: y + 1.01, z: z + 2.5, yaw: 0, pitch: 0, active: false } }));
@@ -93,7 +93,7 @@ test('network drops broadcast after checkpoint, survive restart, and transfer to
     const aWelcome = await againA.next(m => m.type === 'welcome'), bWelcome = await againB.next(m => m.type === 'welcome');
     assert.equal(count(aWelcome.inventory, block), 0); assert.equal(bWelcome.drops[0].id, dropped.drops[0].id);
     const item = bWelcome.drops[0], pose = { x: item.x, y: item.y - 0.17, z: item.z, yaw: 0, pitch: 0, active: true };
-    await new Promise(resolve => setTimeout(resolve, Math.max(0, item.readyAt - Date.now() + 10)));
+    await new Promise(resolve => setTimeout(resolve, Math.max(0, item.readyAt - game.room.clock.elapsedSeconds * 1000 + 150)));
     for (const player of [againB, againA]) {
       player.socket.send(JSON.stringify({ type: 'pose', pose }));
       player.socket.send(JSON.stringify({ type: 'command', requestId: 1, method: 'pickup', amount: 64 }));

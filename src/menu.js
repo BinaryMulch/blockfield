@@ -1,9 +1,9 @@
 const SCREENS = {
-  home: ['Blockfield', 'Wander the woods. Break a block. Build something.'],
+  home: ['Blockfield', 'Gather supplies. Repair your shelter. Endure the night.'],
   single: ['Your Worlds', 'Pick up where you left off, or start a new adventure.'],
-  create: ['Create a World', 'Choose a name, a mode, and a landscape to call your own.'],
+  create: ['Create a World', 'Choose a name and seed. Begin near a modern outpost and renewable salvage sites.'],
   multi: ['Multiplayer', 'Join a shared world and build together.'],
-  pause: ['Game paused', ''],
+  pause: ['Game menu', ''],
   settings: ['Settings', 'Make yourself at home. Changes apply immediately.'],
   controls: ['Controls', 'Everything you need for your next adventure.'],
 };

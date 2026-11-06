@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { isFlower } from './world.js';
+import { isPlant } from './world.js';
 import { CHUNK_SIZE } from './generation.js';
 import { buildItemGeometry } from './terrain.js';
 
@@ -26,7 +26,7 @@ export class DropRenderer {
         geometry.translate(-0.5, -0.5, -0.5);
         this.geometries.set(item.block, geometry);
       }
-      const mesh = new THREE.Mesh(this.geometries.get(item.block), isFlower(item.block) ? this.flowers : this.material);
+      const mesh = new THREE.Mesh(this.geometries.get(item.block), isPlant(item.block) ? this.flowers : this.material);
       mesh.scale.setScalar(0.3); mesh.receiveShadow = true;
       this.meshes.set(item.id, mesh); this.root.add(mesh);
     }

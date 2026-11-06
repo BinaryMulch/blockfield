@@ -64,12 +64,13 @@ test('server sampler measures process activity rather than presenting loop activ
 test('performance endpoint supplies bounded diagnostics without joining or caching a world', async () => {
   const game = await createGameServer({ host: '127.0.0.1', port: 0 });
   try {
+    const initialChunks = game.room.world.chunks.size;
     const response = await fetch(`http://127.0.0.1:${game.server.address().port}/api/performance`);
     assert.equal(response.status, 200);
     assert.equal(response.headers.get('cache-control'), 'no-store');
     const result = await response.json();
     assert.equal(result.version, 1);
-    assert.equal(result.players, 0); assert.equal(result.loadedChunks, 0);
+    assert.equal(result.players, 0); assert.equal(result.loadedChunks, initialChunks); assert.ok(result.loadedChunks <= 16);
     assert.equal(result.saving, false); assert.equal(result.saveHealthy, true);
     assert.ok(result.memory.rss > 0);
     assert.equal(result.saveMs.last, null);

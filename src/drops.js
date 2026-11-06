@@ -1,9 +1,9 @@
 import { HEIGHT, SIZE, isSolid, blockBounds } from './world.js';
-import { CREATIVE_ITEMS, STACK_LIMIT, INVENTORY_SIZE } from './inventory.js';
+import { MATERIALS, STACK_LIMIT, INVENTORY_SIZE } from './inventory.js';
 
 export const MAX_DROPS = 256;
 export const PICKUP_RADIUS = 1.25;
-const blocks = new Set(CREATIVE_ITEMS.map(item => item.id));
+const blocks = new Set(MATERIALS.map(item => item.id));
 const RADIUS = 0.16;
 
 export function validDrops(drops, size) {

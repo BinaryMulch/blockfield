@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { LANTERN } from './world.js';
+import { LANTERN, WARD_LANTERN } from './world.js';
 import { WorldJobs } from './jobs.js';
 import { lightBounds, captureLightBlocks, buildLanternField } from './lantern-field.js';
 export { LANTERN_RANGE } from './lantern-field.js';
@@ -34,7 +34,7 @@ export class LanternLighting {
     this.useWorker = jobs === undefined && typeof Worker === 'function';
     this.onError = onError;
     this.uniforms = { lanternField: { value: fieldTexture() }, lanternOrigin: { value: new THREE.Vector3() },
-      lanternSize: { value: new THREE.Vector3(1, 1, 1) }, lanternColor: { value: new THREE.Color('#ffb65c') }, lanternStrength: { value: 1.25 } };
+      lanternSize: { value: new THREE.Vector3(1, 1, 1) }, lanternColor: { value: new THREE.Color('#d8e7ef') }, lanternStrength: { value: 1.25 } };
     this.sync(world);
   }
 
@@ -82,11 +82,11 @@ export class LanternLighting {
     if (world.chunks) {
       for (const key of keys || world.chunks.keys()) {
         const chunk = world.chunks.get(key);
-        if (chunk) this.chunkSources.set(key, chunk.blocks.includes(LANTERN));
+        if (chunk) this.chunkSources.set(key, (chunk.blocks.includes(LANTERN) || chunk.blocks.includes(WARD_LANTERN)));
         else this.chunkSources.delete(key);
       }
       this.hasSources = [...this.chunkSources.values()].some(Boolean);
-    } else this.hasSources = world.blocks.includes(LANTERN);
+    } else this.hasSources = (world.blocks.includes(LANTERN) || world.blocks.includes(WARD_LANTERN));
     if (!this.hasSources) { this.clear(); this.dirty = false; }
   }
 

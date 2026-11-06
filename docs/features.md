@@ -1,76 +1,124 @@
 # Current features
 
-## Worlds and multiplayer
+Blockfield has one **Horror** mode: an ongoing cooperative world with finite gathering, renewable supplies, crafting, construction, repairs, and fuelled ward protection. Creatures and player health are not implemented yet.
 
-- Seeded **512 × 512** worlds, 24 blocks high, with hills, lakes, trees, and flowers.
-- Nearby chunks load as you explore; distant chunks unload.
-- Private single-player worlds with a dedicated, searchable world browser, visible mode/save details, a separate creation screen, JSON export/import, and per-world deletion with confirmation.
-- Shared multiplayer worlds for **up to eight players**, with avatars, names, a live connected-player list in the Escape pause menu, and reconnect support.
-- Walking, jumping, sprinting, flying, and half-block step climbing.
-- Shared day/night cycle, sunlight/shadows, moon, stars, and time controls.
+## Worlds and settlement
 
-## Building and inventory
+- Seeded 512 × 512 worlds, 24 blocks high, with hills, lakes, trees, and flowers.
+- New worlds begin near a damaged modern maintenance outpost with concrete supports, reinforced steel panels, glazing, a ward emitter, an empty shared cabinet, and openings to repair.
+- Three nearby salvage landmarks provide renewable supplies: a maintenance yard, roadside station, and abandoned worksite. Their coordinates appear in the game menu. Existing worlds retain their layouts; create a new world for these landmarks.
+- Cabin blocks can be gathered, repaired, replaced, and extended normally. Repairs persist across chunk reloads and server restarts.
+- Private browser worlds with searchable saves, JSON export/import, and per-world deletion.
+- Shared multiplayer worlds for up to eight players, with names, avatars, a connected-player list, and reconnect support.
+- Walking, jumping, sprinting, and half-block step climbing.
+- No flight, unlimited-material mode, undo/redo, or manual time controls.
 
-- **Gather (default):** start empty, collect blocks by breaking them, and spend items when placing them.
-- **Creative:** unlimited building supplies and a searchable material palette.
-- Gather inventory has **27 backpack slots + 9 hotbar slots**, with up to **64 items per stack**. Multiple stacks of the same material are allowed.
-- Left-click moves, combines, or swaps stacks. Right-click takes half or places one. Shift-click transfers between backpack and hotbar. Hover a slot and press 1–9 to swap with a hotbar slot.
-- In Gather, **Q** drops one item and **Shift+Q** drops the selected stack. Touch has **Drop**; inventory has **Drop one** / **Drop stack** for held items or the selected hotbar slot.
-- Walk close to pick up dropped items after a 1.5-second delay, including items from other players. Full inventories leave items on the ground; partial pickups leave the remainder. Drops persist in saves/backups without timed despawn, with a limit of 256 dropped stacks.
-- Closing inventory returns held items to their source slot. Multiplayer stores each player's Gather stacks and layout on the server.
-- Grass, dirt, stone, wood, leaves, sand, planks, bricks, glass, doors, lanterns, wooden slabs, and three flower varieties.
-- Doors open/close; slabs can merge into planks; lantern light is blocked by opaque walls and closed doors.
-- Undo/redo covers block edits and fixtures. Gather undo/redo also transfers the corresponding supplies; unavailable items or conflicting edits prevent the action.
-- Procedural pixel textures, placement/breaking sounds, footsteps, water-entry splashes, swimming sounds, and block particles.
+## Survival time
 
-Choose a recipe in inventory, then click **Make**:
+- An eight-minute day/night cycle with a persistent day count and elapsed simulation seconds.
+- The server advances while anyone is connected, including players in menus or inventory.
+- The last disconnect freezes the simulation and checkpoints the world.
+- Reconnecting or restarting the host resumes saved time without offline catchup.
+- Private worlds run while open, including menus; use Save & leave to close and pause them. Browsers may suspend background tabs.
+- Item pickup delays use simulation time, so they also pause offline.
+
+## Supplies and construction
+
+Start empty. Break blocks to collect them and spend supplies when building. Inventory has 27 backpack slots plus nine hotbar slots, with stacks of up to 64. Left-click moves stacks; right-click splits or places one; Shift-click moves between backpack and hotbar. Hover a slot and press 1–9 to swap with a hotbar slot.
+
+Choose a recipe, then click Make:
 
 | Ingredients | Result |
 | --- | --- |
-| 1 wood | 4 planks |
-| 4 stone | 4 bricks |
+| 1 wood | 4 wood cladding |
+| 4 stone | 4 pavers |
 | 2 sand | 1 glass |
-| 6 planks | 1 door |
-| 3 planks | 6 wooden slabs |
-| 4 stone + 1 wood + 1 glass | 1 lantern |
+| 6 wood cladding | 1 service door |
+| 3 wood cladding | 6 wooden slabs |
+| 4 stone + 1 wood + 1 glass | 1 utility light |
+| 8 stone + 2 wood + 2 glass | 1 ward emitter |
+| 4 stone + 1 sand | 4 concrete |
+| 4 concrete + 1 scrap metal | 2 reinforced panels |
+| 4 reinforced panels + 2 wood cladding | 1 storage cabinet |
+| 6 reinforced panels + 1 glass | 1 security door |
+| 1 leaves | 1 sapling |
+| 1 wood | 2 biomass cartridges |
+| 2 scrap metal + 2 wood cladding | 1 reusable repair tool |
 
-## Desktop controls
+Grass, dirt, stone, wood, leaves, sand, wood cladding, pavers, glass, service doors, utility lights, ward emitters, wooden slabs, concrete, reinforced panels, cabinets, security doors, and three flower varieties are available. Doors open/close, slabs merge into wood cladding, and lantern light respects opaque walls and closed doors. Construction validates support, player clearance, available supplies, and conflicting edits before changing blocks.
 
-The main menu has large **Single Player**, **Multiplayer**, **Settings**, and **Controls** buttons. Settings and Controls are also accessible from the Escape pause menu. The gameplay HUD has a rectangular hotbar without a separate item caption or keyboard hints. Tab and Shift+Tab do not navigate the UI; buttons do not retain focus. Click text fields to type.
+Drop items with Q / Shift+Q or the inventory Drop buttons. Nearby players can collect them after 1.5 simulation seconds. Drops persist without timed despawn; at most 256 stacks can be on the ground.
+
+### Shared storage
+
+Cabinets face the player when placed, snapping to the nearest of four horizontal directions so they can sit against any wall. Their orientation persists across chunk reloads and saves. Aim at a cabinet and press E, right-click, or use the touch Use button. Each cabinet has 27 shared slots, with 64 items per stack. Click a stack to transfer it between your inventory and the cabinet; right-click transfers one. Transfers combine matching stacks before filling empty slots and leave any excess in the source. Everyone sees confirmed changes, and stale simultaneous requests refresh without moving supplies twice. Empty a cabinet before dismantling it.
+
+Cabinet contents save with player supplies in shared and private worlds, including exports and imports. The world keeps running while a cabinet is open. Currently, up to 4,096 cabinets can have storage records.
+
+### Stronger construction
+
+| Material | Dismantling hits |
+| --- | --- |
+| Ordinary blocks and service doors | 1 |
+| Concrete and empty cabinets | 2 |
+| Reinforced panels | 4 |
+| Security doors | 5 |
+
+Strike repeatedly with Break/left-click, at least 0.3 simulation seconds apart. Remaining strength is shared and saved; it does not reset when players disconnect or the server restarts. Opening a security door preserves its strength. The final strike returns one block (one item for a complete door), provided your inventory has room. A door still depends on its floor support. Reinforced pieces seal shelter using the same cached enclosure checks as other solid blocks; closed security doors isolate rooms. Creature damage is future work.
+
+### Visible structural damage
+
+Damaged structures display three stages of wear according to the fraction of strength lost. Concrete develops cracks and chipped edges, reinforced panels show scratches and dent marks, and cabinets/security doors show scuffed surfaces and creased seams. Four stable pattern variations per material family prevent every block looking identical. Door patterns cover both halves and follow the panel when it opens or changes facing. Repairs restore the clean surface. Cracks are visual; actual block destruction creates a shelter breach.
+
+Select the repair tool and aim at a reinforced piece to see its remaining strength and a small meter. Damage is synchronized on hits, repairs, and chunk loading, so it remains visible after rejoining, restarting, or returning to an area in shared and private worlds.
+
+Wear uses a shared atlas of 32×32 masks blended by the existing solid-terrain shader. Its packed attribute adds three bytes per solid vertex. Hits and repairs update only the corresponding vertex ranges without rebuilding terrain or adding draw calls; a door shares one damage anchor across both halves. Masks are generated once, and damage changes compose with the existing voxel lighting. Client damage records are retained only for loaded terrain; the host indexes records by chunk for snapshots.
+
+### Renewable resources and upkeep
+
+Craft saplings from harvested leaves, then plant them on grass or dirt. Each growth stage takes one game day (eight simulation minutes); after three stages a sapling becomes a tree with four wood blocks and a renewable canopy. Use a sapling to inspect its stage and any obstruction. Growth waits for players, building clearance, build height, or nearby terrain loading. It preserves existing blocks. Removing a sapling or its soil returns one sapling and cancels its timer.
+
+Use a marked salvage crate to gather a bundle of **2 scrap, 4 stone, and 2 sand**. Each site holds at most four bundles and replenishes one bundle per game day. These are shared reserves: gathering spends stock atomically, and a full inventory leaves the stock intact. Supply crates are fixed landmarks, and replenishment changes their reserves without resetting surrounding terrain or player builds.
+
+Select a repair tool and press E/right-click or touch Use on damaged concrete, panels, cabinets, or security doors. One stone repairs concrete; one scrap repairs the other reinforced pieces. A repair restores full strength without dismantling the structure or opening a hole. The tool remains available for reuse. There is no passive deterioration of buildings.
+
+Use a ward emitter to manage its power. One biomass cartridge adds **one game day** of charge; capacity is **three days (24 simulation minutes)**. The starting emitter is full, while newly placed emitters need fuel. Powered-on emitters consume charge continuously, including in unsealed rooms and unloaded areas. Switching one off preserves its remaining charge and disables protection. Breaking/replacing an emitter returns the device with no stored charge. A full cartridge is accepted only when there is room for its charge. The HUD and emitter inspection show low power during the last game day of charge. Utility lights remain fuel free.
+
+Growth deadlines, stock replenishment, and charge all use saved simulation time, freezing when everyone disconnects. Growth deadlines continue while terrain is unloaded; growth applies once the required chunks are available. Wards and stock use elapsed-time arithmetic instead of per-device tick loops. An indexed queue processes at most four due plant events per update, with at most 2,048 planted saplings, 2,048 ward records, and 32 supply points per world. Generators, shared electrical distribution, food, and hunger are later milestones.
+
+### Modern visual direction
+
+Materials use procedural 32×32 textures, including fine concrete pores, panel seams and fasteners, steel cabinet doors, and contemporary service/security doors. Wood planks appear as painted cladding, bricks as concrete pavers, and lanterns as utility lights; the cyan ward is named **Ward emitter**. The flat-roof outpost and slate/teal interface establish a contemporary woodland setting. Terrain remains voxel based. Existing structures retain their shapes and use the updated textures; start a new world to see the modern starter outpost.
+
+## Shelter protection
+
+A powered, charged ward emitter automatically protects its enclosed room. Complete the floor, walls, roof, and closed doors; glass seals windows. Leaves, water, open doors, flowers, saplings, lanterns, and either slab half do not seal openings. Utility lights provide light only. Wards need full-height support and biomass fuel. Running out of charge or switching off revokes protection immediately, including for cached rooms; refuelling restores it when enclosure is verified.
+
+The HUD shows Exposed, Shelter enclosed (needs a ward or power), Protected, or Checking shelter (verification or terrain loading). A complete green mark around a ward means active; a broken amber mark means inactive. Aim at it or use E/right-click to inspect and manage it. A chime marks gaining/losing protection, with equivalent text feedback. Edits invalidate affected protection immediately. The HUD shows Checking during verification, then reports the new result; repairs restore protection once confirmed.
+
+Player-built rooms work like the starter cabin, including large open houses. Open interior doorways join protection zones; closed interior doors isolate them, so each separate zone needs a ward. A closed door can preserve protection on one side of an exterior breach. Large zones are checked over multiple updates, with one shared work budget for everyone and bounded caches. Exhausting a work allowance never declares a room exposed: it stays Checking until verified. If the working cache is full, close doors to separate smaller zones. The host computes multiplayer state, while private worlds use the same rules. Checks never load extra terrain, and unloaded terrain never grants protection. Unrelated edits keep cached results; only affected terrain sections are rebuilt. Wards and repairs persist; active/inactive results are recalculated after loading. Existing worlds and cabins are not overwritten, so older cabins may require a crafted ward.
+
+## Controls
 
 | Action | Control |
 | --- | --- |
 | Move / look | WASD / mouse |
-| Sprint / jump | Hold Shift / Space |
-| Fly / rise / descend | V / Space / C |
-| Break / place | Left-click / F (right-click places when not aiming at a door) |
-| Select hotbar / inventory | Scroll wheel or 1–9 / I |
-| Drop one / drop stack (Gather) | Q / Shift+Q |
-| Pick an owned material / interact | Middle-click / E or right-click |
-| Quick-select door / lantern / slab / flowers | 0 / L / B / R |
-| Undo / redo | Z / Shift+Z or Y |
-| Pause / close menu and resume | Escape |
-| Hold time / skip to next time of day | T / N |
-| Mute sound / performance stats | M / P |
+| Sprint / jump | Shift / Space |
+| Break / place | Left-click / F; right-click places or interacts |
+| Interact | E / right-click |
+| Inventory / hotbar | I / scroll wheel or 1–9 |
+| Drop one / stack | Q / Shift+Q |
+| Pick an owned material | Middle-click |
+| Select service door / utility light / ward / slab / flowers | 0 / L / Shift+L / B / R |
+| Menu | Escape |
+| Mute / performance stats | M / P |
 
-Gather picking and quick selection only use items you own. In Creative they can assign unlimited materials. I, Escape, and the inventory close button return to play when inventory was opened during play. Escape always closes inventory directly into the game; the other close actions return inventory opened from the pause menu back there. Escape also closes Settings, Controls, and the pause menu to resume play.
+Touch has a movement stick, drag-to-look, Jump, Sprint, Break, Place, Use, Drop, and Menu. Open Menu → Inventory to craft and move stacks. Menus release your controls while the world keeps running. Tab navigation remains disabled; click text fields to type.
 
-## Touch controls
+## Saves and migration
 
-Use the left stick to move and drag the world to look. Aim the crosshair, then tap **Break**, **Place**, or **Use door**. **Jump**, **Fly**, **Up** / **Down**, **Sprint**, and **Undo** control movement and building. Swipe the hotbar to scroll and tap a slot to select it.
+Shared edits, cabinet contents, structural damage, and supplies save before success is confirmed. The active clock checkpoints every five seconds, on the last disconnect, and on clean shutdown. Private worlds use browser IndexedDB and checkpoint time/position roughly every five seconds, plus saving on menu entry and leaving.
 
-In Gather, tap **Drop** to drop one item from the selected hotbar slot. Open **Pause → Inventory** to move stacks or use **Drop one** / **Drop stack** for held items or the selected hotbar slot. Walk close to collect dropped items after the pickup delay. The Controls screen includes both desktop shortcuts and touch instructions.
+Old Gather and Creative worlds migrate to Horror when opened. Existing terrain and structures remain intact; no cabin is stamped over an old world. Gather quantities and layouts are retained, including older counter inventories. Creative hotbars become empty finite supplies because unlimited access did not represent owned items. The old held-clock setting is cleared. Keep your browser's anonymous player identity to retain access to multiplayer inventory.
 
-## Graphics and saves
-
-- FPS limits: **30, 60, or 120**. Render resolution: **50%, 75%, or 100%**. Desktop defaults: 60 FPS / 100%.
-- Performance panel includes FPS, frame timings, rendering/worker statistics, and host CPU/RAM. Reports can be exported.
-- Shared world edits, crafting, inventory transfers, item drops/pickups, and manual time changes save before success is confirmed. The advancing clock saves every five seconds; clean shutdown makes a final save.
-- Private worlds save in browser IndexedDB. Building/inventory changes save immediately; position and time checkpoint about every five seconds, and pausing/leaving also saves.
-- Older Gather material counters migrate to stack inventories. Existing worlds retain their mode; older worlds remain Creative.
-
-## Current scope
-
-This is a cooperative sandbox for trusted family/friend play. There are no accounts, combat, health, hunger, or mobs. Water is still, and worlds have finite boundaries. Undo/redo history resets after reopening/reconnecting. Keep the same browser profile and site address to retain access to private worlds and your multiplayer inventory identity.
-
-The [player account and inventory recovery proposal](player-identity.md) is deferred future work.
+The account and inventory recovery proposal remains [deferred](player-identity.md).

@@ -1,4 +1,4 @@
-import { AIR, STONE, LANTERN, SLAB, UPPER_SLAB, HEIGHT, SIZE, isOpaque, isSlab, doorState } from './world.js';
+import { AIR, STONE, isLantern, SLAB, UPPER_SLAB, HEIGHT, SIZE, isOpaque, isSlab, doorState } from './world.js';
 import { CHUNK_SIZE } from './generation.js';
 
 export const LANTERN_RANGE = 8;
@@ -52,7 +52,7 @@ export function captureLightBlocks(world, bounds) {
 export function buildLanternField({ blocks, width, height, depth }) {
   const light = new Uint8Array(blocks.length), queue = new Uint32Array(blocks.length);
   let tail = 0, sources = 0;
-  for (let i = 0; i < blocks.length; i++) if (blocks[i] === LANTERN) {
+  for (let i = 0; i < blocks.length; i++) if (isLantern(blocks[i])) {
     light[i] = LIGHT_LEVELS; queue[tail++] = i; sources++;
   }
   const plane = width * height;

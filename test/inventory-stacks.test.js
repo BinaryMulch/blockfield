@@ -1,15 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { Inventory, emptyGatherInventory, DEFAULT_HOTBAR, CREATIVE_ITEMS, validInventory } from '../src/inventory.js';
+import { Inventory, emptyGatherInventory, DEFAULT_HOTBAR, MATERIALS, validInventory } from '../src/inventory.js';
 import { WOOD, STONE, DIRT, PLANKS, LANTERN } from '../src/world.js';
 const fresh = () => new Inventory(emptyGatherInventory());
 const add = (inventory, block, count) => { const result = inventory.balance(new Map([[block, count]])); assert.equal(result.ok, true); inventory.applyBalance(result); };
 
 test('legacy counted inventories migrate each supply once, retaining owned hotbar items and all remaining materials', () => {
-  const counts = CREATIVE_ITEMS.map((_, i) => i + 1), slots = [...DEFAULT_HOTBAR]; slots[1] = WOOD; slots[2] = WOOD;
+  const counts = MATERIALS.map((_, i) => i + 1), slots = [...DEFAULT_HOTBAR]; slots[1] = WOOD; slots[2] = WOOD;
   const inventory = new Inventory({ version: 2, mode: 'gather', slots, selected: 2, counts });
   assert.equal(inventory.snapshot().version, 3); assert.equal(inventory.stacks.length, 36); assert.equal(inventory.stacks[1].block, WOOD); assert.equal(inventory.stacks[2], null);
-  for (let i = 0; i < counts.length; i++) assert.equal(inventory.count(CREATIVE_ITEMS[i].id), counts[i]);
+  for (let i = 0; i < counts.length; i++) assert.equal(inventory.count(MATERIALS[i].id), counts[i]);
   assert.equal(inventory.selected, 2); assert.equal(validInventory(inventory.snapshot()), true);
 });
 

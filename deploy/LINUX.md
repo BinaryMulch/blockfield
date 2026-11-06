@@ -35,17 +35,13 @@ WORLD_NAME="Family world" WORLD_SEED="our-forest" DATA_DIR=/path/to/world-data P
 
 `HOST` defaults to `0.0.0.0`. Set it to a specific interface address if desired. `DATA_DIR` defaults to `data/` next to `server.js`; use an absolute path outside the extracted program folder to keep saves separate from software updates. `WORLD_SEED` and `WORLD_NAME` apply only when that folder has no saved world. Existing saves always restore their own seed and name. Use a different data directory for a separate world.
 
-New server worlds default to `gather` for limited inventories and simple crafting. Set `GAME_MODE=creative` to create a world with unlimited supplies. Like the seed, the mode is saved with the world and only applies to a new data directory; existing worlds keep their saved mode (older worlds are Creative). For example, after building:
+All worlds use Horror mode with finite supplies. New worlds begin near a repairable cabin. Existing saves migrate without changing terrain or stamping a cabin over existing structures. Legacy Gather quantities are retained; Creative hotbars become empty finite supplies. GAME_MODE is no longer a supported setting; old environment entries are ignored.
 
-```sh
-GAME_MODE=gather DATA_DIR=./data/gather PORT=6201 npm start
-```
+Each player's stacks, backpack, hotbar layout, and selection save on the server with the world. An anonymous browser token reconnects that player to their supplies; it stays in the browser's website data. Player names do not grant access to inventories. Back up the complete server save directory to retain all players' supplies. Refresh clients after updating because multiplayer now uses protocol 7. Older Gather material counters migrate into the new 36-slot inventory on load, with all owned quantities retained.
 
-Each Gather player's stacks, backpack, hotbar layout, and selection save on the server with the world. An anonymous browser token reconnects that player to their supplies; it stays in the browser's website data. Player names do not grant access to inventories. Back up the complete server save directory to retain all players' supplies. Refresh clients after updating because multiplayer now uses protocol 4. Older Gather material counters migrate into the new 36-slot inventory on load, with all owned quantities retained.
+**Saving is enabled.** Shared worlds are saved to `world.json` and `world.json.bak` inside the data directory. Building edits, inventory actions, crafting, and item drops are flushed to disk before clients receive success. The clock advances while any player is connected, even in menus. It checkpoints every five seconds and when the last player disconnects; clean shutdown makes a final checkpoint. Empty servers pause, and restarts never advance offline time. Worlds restore after process or machine restarts. Active chunk caches are regenerated on demand.
 
-**Saving is enabled.** Shared worlds are saved to `world.json` and `world.json.bak` inside the data directory. Building edits and time-control changes are flushed to disk before clients receive success. The clock is checkpointed every five seconds; clean shutdown makes a final checkpoint. Worlds restore after process or machine restarts. Active chunk caches are regenerated on demand.
-
-Private worlds save to IndexedDB in each player's browser and appear in its saved-world library. They do not occupy server disk space. The same browser and site address are required to see that library; use Export/Import to move worlds to another browser or address. Personal player positions and time are saved; undo/redo history is not carried across reopening.
+Private worlds save to IndexedDB in each player's browser and appear in its saved-world library. They do not occupy server disk space. The same browser and site address are required to see that library; use Export/Import to move worlds to another browser or address. Personal player positions, finite supplies, and simulation time are saved. Use Save & leave to pause a private world.
 
 ## Keep the native server running with systemd
 
@@ -93,7 +89,6 @@ Compose exposes port 6200. Optional variables can be supplied in a `.env` file n
 BLOCKFIELD_PORT=6200
 WORLD_NAME=Family world
 WORLD_SEED=our-forest
-GAME_MODE=gather
 ```
 
 Stop it with `docker compose down`. The `blockfield-data` named volume keeps saves at `/app/data` across container rebuilds and restarts. Ordinary `down` preserves the volume; `docker compose down -v` deletes it and its saved world. `restart: unless-stopped` keeps the server running. The prebuilt tarball is for native Node hosting; use the full source folder for Docker builds.
