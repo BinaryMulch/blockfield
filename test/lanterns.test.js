@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { World, AIR, STONE, WATER, LANTERN, isBlock, isDoor, isSupport, blockBounds, stepPlayer } from '../src/world.js';
 import { EditHistory } from '../src/history.js';
 import { buildTerrainGeometry, buildLanternGeometry } from '../src/terrain.js';
-import { LanternLighting, MAX_LANTERN_LIGHTS, nearestLanterns } from '../src/lanterns.js';
+import { LanternLighting } from '../src/lanterns.js';
 
 function setup() {
   const world = new World({ generate: false });
@@ -78,45 +78,38 @@ test('lantern geometry includes a handle, shares collision bounds, and leaves th
   solid.dispose(); lantern.dispose(); material.dispose();
 });
 
-test('nearby light selection is deterministic and never mutates the source list', () => {
-  const sources = [{ index: 2, x: 0, y: 1, z: 0 }, { index: 1, x: 0, y: 1, z: 0 }, { index: 3, x: 10, y: 1, z: 0 }];
-  assert.deepEqual(nearestLanterns(sources, { x: 0.5, y: 1.45, z: 0.5 }, 2).map(source => source.index), [1, 2]);
-  assert.deepEqual(sources.map(source => source.index), [2, 1, 3]);
-});
-
-test('many lanterns reuse a fixed light pool, follow the player, and brighten at night', () => {
-  const world = new World({ generate: false });
-  for (let x = 2; x <= 40; x += 2) world.set(x, 1, 8, LANTERN);
+test('cached voxel lighting brightens at night without adding point lights', async () => {
+  const { world, history } = setup();
+  history.placeLantern(8, 1, 8);
   const scene = new THREE.Scene(), lighting = new LanternLighting(scene, world);
-  const nodes = lighting.lights.map(light => light.uuid);
-  lighting.update(0, new THREE.Vector3(2.5, 2.6, 8.5), 1);
-  assert.equal(lighting.sources.length, 20);
-  assert.equal(lighting.activeSources.length, MAX_LANTERN_LIGHTS);
-  assert.equal(lighting.activeSources[0].x, 2);
-  const dayIntensity = lighting.lights[0].intensity;
-  lighting.update(0.2, new THREE.Vector3(40.5, 2.6, 8.5), 0);
-  assert.equal(lighting.activeSources[0].x, 40);
-  assert.ok(lighting.lights[0].intensity > dayIntensity);
-  assert.deepEqual(lighting.lights.map(light => light.uuid), nodes);
-  assert.equal(lighting.group.children.length, MAX_LANTERN_LIGHTS);
-  assert.ok(lighting.lights.every(light => !light.castShadow && light.distance === 8));
+  await lighting.update(0, new THREE.Vector3(8.5, 2, 8.5), 1);
+  const texture = lighting.uniforms.lanternField.value;
+  assert.equal(lighting.sourceCount, 1);
+  assert.equal(texture.magFilter, THREE.NearestFilter);
+  assert.ok(texture.image.data.some(value => value > 0));
+  const dayStrength = lighting.uniforms.lanternStrength.value;
+  await lighting.update(1, new THREE.Vector3(8.5, 2, 8.5), 0);
+  assert.equal(lighting.uniforms.lanternField.value, texture, 'idle frames reuse the lighting texture');
+  assert.ok(lighting.uniforms.lanternStrength.value > dayStrength);
+  assert.equal(scene.children.filter(node => node.isPointLight).length, 0);
+  lighting.dispose();
 });
 
-test('light synchronization follows placement, undo, redo, and support removal', () => {
+test('light synchronization follows placement, undo, redo, and support removal', async () => {
   const { world, history } = setup();
   world.set(8, 1, 8, STONE);
   const lighting = new LanternLighting(new THREE.Scene(), world);
-  const sync = () => { lighting.sync(world); lighting.update(0, new THREE.Vector3(8.5, 3, 10), 0); };
-  history.placeLantern(8, 2, 8); sync();
-  assert.equal(lighting.activeSources.length, 1);
-  assert.ok(lighting.lights[0].intensity > 0);
-  history.undo(); sync();
-  assert.equal(lighting.activeSources.length, 0);
-  assert.ok(lighting.lights.every(light => light.intensity === 0));
-  history.redo(); sync();
-  assert.equal(lighting.activeSources.length, 1);
-  history.edit(8, 1, 8, AIR); sync();
-  assert.equal(lighting.activeSources.length, 0);
-  history.undo(); sync();
-  assert.equal(lighting.activeSources.length, 1);
+  const sync = async () => { lighting.sync(world); await lighting.update(0, new THREE.Vector3(8.5, 3, 10), 0); };
+  history.placeLantern(8, 2, 8); await sync();
+  assert.equal(lighting.sourceCount, 1);
+  history.undo(); await sync();
+  assert.equal(lighting.sourceCount, 0);
+  assert.equal(lighting.uniforms.lanternField.value.image.data[0], 0);
+  history.redo(); await sync();
+  assert.equal(lighting.sourceCount, 1);
+  history.edit(8, 1, 8, AIR); await sync();
+  assert.equal(lighting.sourceCount, 0);
+  history.undo(); await sync();
+  assert.equal(lighting.sourceCount, 1);
+  lighting.dispose();
 });

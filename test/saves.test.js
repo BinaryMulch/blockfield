@@ -137,7 +137,7 @@ function peer(url) {
   const socket = new WebSocket(url), messages = [];
   socket.on('error', () => {});
   socket.on('message', raw => messages.push(JSON.parse(raw.toString())));
-  socket.on('open', () => socket.send(JSON.stringify({ type: 'hello', protocol: 2, name: 'Save tester' })));
+  socket.on('open', () => socket.send(JSON.stringify({ type: 'hello', protocol: 4, name: 'Save tester' })));
   const wait = predicate => {
     const existing = messages.find(predicate); if (existing) return Promise.resolve(existing);
     return new Promise((resolve, reject) => {
@@ -150,7 +150,7 @@ function peer(url) {
 }
 
 async function startProcess(dir, seed = 'crash-test') {
-  const child = spawn(process.execPath, ['server.js', '--production'], { env: { ...process.env, PORT: '0', DATA_DIR: dir, WORLD_NAME: 'Durable world', WORLD_SEED: seed }, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(process.execPath, ['server.js', '--production'], { env: { ...process.env, PORT: '0', DATA_DIR: dir, WORLD_NAME: 'Durable world', WORLD_SEED: seed, GAME_MODE: 'creative' }, stdio: ['ignore', 'pipe', 'pipe'] });
   const url = await new Promise((resolve, reject) => {
     let log = '';
     const timer = setTimeout(() => { child.kill(); reject(new Error(log || 'Host did not start')); }, 8000);
@@ -185,7 +185,7 @@ test('acknowledged network edits and time survive SIGKILL and restart without re
 });
 
 test('disk write failures stop broadcasts and later edits instead of acknowledging unsaved changes', async t => {
-  const dir = await directory(t), game = await createGameServer({ host: '127.0.0.1', port: 0, saveDirectory: dir });
+  const dir = await directory(t), game = await createGameServer({ host: '127.0.0.1', port: 0, saveDirectory: dir, room: new GameRoom({ gameMode: 'creative' }) });
   t.after(() => game.close()); t.mock.method(console, 'error', () => {});
   const port = game.server.address().port, client = peer(`ws://127.0.0.1:${port}/multiplayer`);
   t.after(() => client.socket.terminate()); await client.wait(m => m.type === 'welcome');

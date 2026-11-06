@@ -1,7 +1,7 @@
 import { validateSave, SaveError } from './saves.js';
 
 let database;
-const summary = save => ({ id: save.id, name: save.name, world: { seed: save.world?.seed }, createdAt: save.createdAt, updatedAt: save.updatedAt, saveRevision: save.saveRevision || 0 });
+const summary = save => ({ id: save.id, name: save.name, gameMode: save.gameMode || 'creative', world: { seed: save.world?.seed }, createdAt: save.createdAt, updatedAt: save.updatedAt, saveRevision: save.saveRevision || 0 });
 async function openDatabase() {
   if (!globalThis.indexedDB) throw new SaveError('Browser storage is unavailable. Use a normal browser window with website storage enabled.', 'SAVE_UNAVAILABLE');
   if (!database) database = new Promise((resolve, reject) => {

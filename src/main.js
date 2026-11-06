@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
-import { BUILD_BLOCKS, HEIGHT, WATER, DOOR, LANTERN, SLAB, RED_FLOWER, YELLOW_FLOWER, DAISY, FLOWER_TYPES, EYE_HEIGHT, isSolid, isDoor, isFlower, doorState, buildBlock, blockBounds, overlapsBlock, spawnPlayer, stepPlayer } from './world.js';
+import { HEIGHT, WATER, DOOR, LANTERN, SLAB, RED_FLOWER, FLOWER_TYPES, EYE_HEIGHT, isSolid, isDoor, isFlower, doorState, buildBlock, blockBounds, overlapsBlock, spawnPlayer, stepPlayer } from './world.js';
 import { ChunkWorld } from './chunks.js';
 import { ChunkRenderer } from './chunk-renderer.js';
-import { createTextureAtlas, createLanternEmissiveMap, faceTile, tilePreview, flowerPreview } from './textures.js';
+import { createTextureAtlas, createLanternEmissiveMap } from './textures.js';
 import { FootstepTracker, GameSounds } from './sound.js';
 import { WorldSky } from './sky.js';
 import { GameSession, serverURL } from './session.js';
@@ -14,17 +14,17 @@ import { BlockParticles } from './particles.js';
 import { LanternLighting } from './lanterns.js';
 import { slabPlacement } from './slabs.js';
 import { PerformanceOverlay } from './performance.js';
+import { TouchControls } from './touch.js';
+import { GraphicsSettings } from './graphics.js';
+import { Inventory, CREATIVE_ITEMS, validInventory } from './inventory.js';
+import { InventoryView } from './inventory-ui.js';
 import './style.css';
 
 const menu = document.querySelector('#menu');
 const play = document.querySelector('#play');
 const error = document.querySelector('#error');
-const BLOCK_NAMES = ['', 'Grass', 'Dirt', 'Stone', 'Wood', 'Leaves', 'Sand', 'Water', 'Planks', 'Bricks', 'Glass', 'Door'];
-BLOCK_NAMES[LANTERN] = 'Lantern';
-BLOCK_NAMES[SLAB] = 'Wooden slab';
-BLOCK_NAMES[RED_FLOWER] = 'Red flower';
-BLOCK_NAMES[YELLOW_FLOWER] = 'Yellow flower';
-BLOCK_NAMES[DAISY] = 'Daisy';
+const BLOCK_NAMES = Object.fromEntries(CREATIVE_ITEMS.map(item => [item.id, item.name]));
+BLOCK_NAMES[WATER] = 'Water';
 
 try {
   start();
@@ -38,8 +38,7 @@ try {
 function start() {
   const canvas = document.querySelector('#game');
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  const graphics = new GraphicsSettings(renderer);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -59,10 +58,12 @@ function start() {
   camera.rotation.x = -0.12;
 
   const world = new ChunkWorld({ generate: false });
-  const lanternLighting = new LanternLighting(scene, world);
+  const lanternLighting = new LanternLighting(scene, world, { onError: cause => { error.hidden = false; error.textContent = `Lantern lighting: ${cause.message}`; } });
   const player = spawnPlayer(world);
   const history = new GameSession(world);
   const particles = new BlockParticles(scene);
+  lanternLighting.applyMaterial(particles.mesh.material);
+  otherPlayers.prepareMaterial = material => lanternLighting.applyMaterial(material);
   const sounds = new GameSounds();
   const footsteps = new FootstepTracker();
   const soundToggle = document.querySelector('#sound-toggle');
@@ -84,12 +85,9 @@ function start() {
     error.hidden = false; error.textContent = cause.message;
   });
   const terrain = chunkRenderer.groups.solid, glass = chunkRenderer.groups.glass, lanterns = chunkRenderer.groups.lantern, flowers = chunkRenderer.groups.flowers;
-  for (const slot of document.querySelectorAll('.slot')) {
-    const block = Number(slot.dataset.block);
-    const icon = slot.querySelector('.block-icon');
-    if (isFlower(block)) { icon.style.backgroundImage = flowerPreview(block); continue; }
-    icon.style.backgroundImage = tilePreview(atlas, faceTile(block, 0));
-    icon.style.setProperty('--top-texture', tilePreview(atlas, faceTile(block, 1)));
+  for (const [mode, material] of Object.entries(chunkRenderer.materials)) {
+    // Reach the air beside thin doors/slabs, without crossing a full voxel wall.
+    lanternLighting.applyMaterial(material, { surfaceOffset: mode === 'solid' ? 0.99 : 0.02 });
   }
 
   const outlineBox = new THREE.BoxGeometry(1, 1, 1);
@@ -99,14 +97,34 @@ function start() {
   scene.add(outline);
 
   const controls = new PointerLockControls(camera, canvas);
+  let playing = false;
+  let inventoryOpen = false;
+  let inventoryReturnToPlay = false;
+  let inventoryProfile = null;
+  const touch = new TouchControls(canvas, camera, {
+    jump() { if (!player.flying) jumpQueued = true; },
+    pause: pauseGame,
+    action(action) {
+      if (!playing) return;
+      if (action === 'break' || action === 'place') void editBlock(action === 'place');
+      else if (action === 'fly') toggleFlight();
+      else if (action === 'use') void useDoor();
+      else if (action === 'undo') void replayEdit(false);
+    },
+  });
+  touch.onModeChange = () => { pauseGame(); updateMode(); };
   const diagnostics = new PerformanceOverlay(() => ({
-    mode: history.mode, context: `${history.mode === 'single' ? 'Single player' : history.mode === 'multiplayer' ? 'Multiplayer' : 'Menu'}${history.mode ? controls.isLocked ? ' · playing' : ' · paused' : ''}`,
+    mode: history.mode, context: `${history.mode === 'single' ? 'Single player' : history.mode === 'multiplayer' ? 'Multiplayer' : 'Menu'}${history.mode ? playing ? ' · playing' : ' · paused' : ''}`,
     render: { calls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
       geometries: renderer.info.memory.geometries, textures: renderer.info.memory.textures },
     chunks: { loaded: world.chunks.size, meshed: chunkRenderer.chunks.size, queued: chunkRenderer.dirty.size },
     mesh: chunkRenderer.jobs.stats('mesh'), generate: history.mode === 'single' ? history.backend?.jobs.stats('generate') : null,
+    lighting: { jobs: lanternLighting.jobs?.stats('light'), sources: lanternLighting.sourceCount,
+      fieldBytes: lanternLighting.uniforms.lanternField.value.image.data.byteLength },
     viewport: { width: window.innerWidth, height: window.innerHeight, pixelRatio: renderer.getPixelRatio() },
+    graphics: graphics.snapshot(),
   }));
+  graphics.onChange = () => diagnostics.reset();
   controls.pointerSpeed = 0.65;
   controls.minPolarAngle = 0.05;
   controls.maxPolarAngle = Math.PI - 0.05;
@@ -122,11 +140,25 @@ function start() {
   const timeToggle = document.querySelector('#time-toggle');
   const timeLabel = document.querySelector('#time-label');
   timeToggle.addEventListener('click', () => void history.request('time', { action: 'hold' }));
-  let selected = 1;
+  const inventory = new Inventory();
+  history.inventory = () => inventory.snapshot();
+  let selected = inventory.block;
   let target = null;
   let toastTimer;
   let jumpQueued = false;
   let hasPlayed = false;
+  const inventoryButton = document.querySelector('#inventory-toggle');
+  const hotbar = document.querySelector('#hotbar');
+  const inventoryView = new InventoryView(inventory, atlas, {
+    select(index) { if (inventory.select(index)) inventoryChanged(); },
+    assign(block) { if (inventory.assign(block)) inventoryChanged(); },
+    reset() { if (inventory.reset()) inventoryChanged(); },
+    action(args) { return history.request('inventory', args); },
+    craft(block) { return history.request('craft', { block }); },
+    close: closeInventory,
+  });
+  inventoryButton.addEventListener('click', openInventory);
+  renderHotbar();
 
   function notify(message) {
     toast.textContent = message;
@@ -136,30 +168,82 @@ function start() {
   }
 
   function select(block) {
-    selected = block;
-    if (isFlower(block)) {
-      const slot = document.querySelector('[data-flower]');
-      slot.dataset.block = block;
-      slot.setAttribute('aria-label', `${BLOCK_NAMES[block]}, key R to change flower`);
-      slot.querySelector('.block-icon').style.backgroundImage = flowerPreview(block);
+    if (inventory.mode === 'gather') {
+      const index = inventory.hotbar.indexOf(block);
+      if (index >= 0) { if (inventory.select(index)) inventoryChanged(); }
+      else if (inventory.count(block)) void history.request('inventory', { action: 'pick', block });
+      else notify(`Collect ${BLOCK_NAMES[block] || 'this material'} first.`);
+    } else if (inventory.pick(block)) inventoryChanged();
+  }
+
+  function renderHotbar() {
+    selected = inventory.block; hotbar.replaceChildren();
+    inventory.hotbar.forEach((block, index) => {
+      const button = document.createElement('button'); button.type = 'button'; button.className = 'slot';
+      button.dataset.slot = index; button.dataset.block = block;
+      const count = inventory.slotCount(index), quantity = Number.isFinite(count) ? String(count) : '∞';
+      button.setAttribute('aria-label', `${BLOCK_NAMES[block] || 'Empty'}, slot ${index + 1}, ${Number.isFinite(count) ? count + ' collected' : 'unlimited'}`);
+      button.setAttribute('aria-pressed', String(index === inventory.selected)); button.classList.toggle('selected', index === inventory.selected);
+      button.classList.toggle('depleted', count === 0);
+      const key = document.createElement('span'); key.className = 'slot-key'; key.textContent = index + 1;
+      const supply = document.createElement('span'); supply.className = 'slot-supply'; supply.textContent = quantity; supply.setAttribute('aria-hidden', 'true');
+      const name = document.createElement('span'); name.textContent = BLOCK_NAMES[block] || 'Empty';
+      button.append(key); if (block) button.append(supply, inventoryView.icon(block)); button.append(name); hotbar.append(button);
+    });
+    document.querySelector('#selected-caption').textContent = `${(BLOCK_NAMES[selected] || 'EMPTY SLOT').toUpperCase()}${inventory.mode === 'gather' && selected ? ` · ${inventory.slotCount(inventory.selected)} LEFT` : ''} · I INVENTORY`;
+  }
+
+  function inventoryChanged() {
+    renderHotbar(); inventoryView.render();
+    if (!history.ready) return;
+    if (inventory.mode === 'gather') { void history.request('inventory', { action: 'select', index: inventory.selected }); return; }
+    if (history.mode === 'single') void history.flush();
+    else if (inventoryProfile) {
+      try { localStorage.setItem(inventoryProfile, JSON.stringify(inventory.snapshot())); }
+      catch { inventoryView.status.textContent = 'Hotbar applied for this visit. Browser settings storage is unavailable.'; }
     }
-    for (const slot of document.querySelectorAll('.slot')) {
-      const active = Number(slot.dataset.block) === selected;
-      slot.classList.toggle('selected', active);
-      slot.setAttribute('aria-pressed', String(active));
+  }
+
+  function loadInventory(message) {
+    inventoryProfile = history.mode === 'multiplayer' && message.gameMode !== 'gather' ? `blockfield-hotbar:${message.worldId || message.world.seed + ':' + message.worldName}` : null;
+    let saved = message.inventory;
+    if (inventoryProfile) {
+      try { saved = JSON.parse(localStorage.getItem(inventoryProfile)); } catch { saved = null; }
     }
-    document.querySelector('#selected-caption').textContent = `${BLOCK_NAMES[selected].toUpperCase()} SELECTED`;
+    if (inventoryProfile) saved = validInventory(saved) && saved.version === 1 ? saved : null;
+    inventory.restore(saved); renderHotbar(); inventoryView.render();
+  }
+
+  function openInventory() {
+    if (!history.ready || inventoryOpen) return;
+    inventoryReturnToPlay = playing; inventoryOpen = true;
+    pauseGame(); menu.hidden = true; inventoryView.open(inventoryReturnToPlay);
+  }
+
+  function closeInventory(resume = false) {
+    if (!inventoryOpen) return;
+    const returnToPlay = resume && inventoryReturnToPlay;
+    inventoryOpen = false; inventoryReturnToPlay = false;
+    inventoryView.close(); menu.hidden = false;
+    play.focus({ preventScroll: true });
+    if (returnToPlay && !play.disabled) requestPlay();
   }
 
   function cycleFlower() {
+    if (inventory.mode === 'gather') {
+      const flowers = FLOWER_TYPES.filter(block => inventory.count(block));
+      if (!flowers.length) { notify('Collect some flowers first.'); return; }
+      select(flowers[(flowers.indexOf(selected) + 1) % flowers.length]); return;
+    }
     const block = isFlower(selected) ? FLOWER_TYPES[(FLOWER_TYPES.indexOf(selected) + 1) % FLOWER_TYPES.length]
-      : Number(document.querySelector('[data-flower]').dataset.block);
+      : inventory.hotbar.find(isFlower) || RED_FLOWER;
     select(block);
-    if (controls.isLocked) notify(`${BLOCK_NAMES[block]} · R to change flower`);
+    if (playing) notify(`${BLOCK_NAMES[block]} · ${touch.enabled ? 'Tap this slot to change flower' : 'R to change flower'}`);
   }
 
   function clearInput() {
     keys.clear();
+    touch.reset();
     jumpQueued = false;
     accumulator = 0;
     footsteps.reset();
@@ -170,70 +254,94 @@ function start() {
 
   function updateMode() {
     modeIndicator.hidden = !player.flying;
+    touch.setFlying(player.flying);
     movementHint.textContent = player.flying ? 'Space up · C down · Shift faster' : 'Shift to sprint';
   }
 
-  play.addEventListener('click', () => {
+  function requestPlay() {
     if (!history.ready) return;
     error.hidden = true;
     void sounds.resume();
-    // Do not request raw mouse input: standard pointer lock also works in Safari.
+    if (touch.enabled) { setPlaying(true); return; }
+    // Desktop mouse input uses pointer lock; touch play does not need it.
     try {
       const request = canvas.requestPointerLock();
       request?.catch?.(() => showPointerError());
     } catch {
       showPointerError();
     }
-  });
+  }
+  play.addEventListener('click', requestPlay);
 
   function showPointerError() {
     error.hidden = false;
-    error.textContent = 'Mouse capture was blocked. Click the play button to try again, or open the game directly in Safari or Chrome.';
+    error.textContent = 'Mouse capture is unavailable. Choose Touch under Controls, or try Play again with a supported mouse browser.';
   }
   document.addEventListener('pointerlockerror', showPointerError);
-  controls.addEventListener('lock', () => {
+  function setPlaying(active) {
+    if (playing === active) return;
+    playing = active;
     diagnostics.reset();
     clearInput();
     error.hidden = true;
-    hasPlayed = true;
-    menu.hidden = true;
-    crosshair.hidden = false;
-    hint.hidden = false;
-    document.body.classList.add('playing');
-    play.blur();
-    queueMicrotask(() => history.sendPose());
-  });
-  controls.addEventListener('unlock', () => {
-    diagnostics.reset();
-    clearInput();
-    menu.hidden = false;
-    crosshair.hidden = true;
-    hint.hidden = true;
-    outline.visible = false;
-    document.body.classList.remove('playing');
-    queueMicrotask(() => history.sendPose());
-    if (!history.backend?.saveError) void history.flush();
-    if (hasPlayed) {
-      document.querySelector('#menu-title').textContent = 'Take your time.';
-      document.querySelector('#menu-description').textContent = currentWorldDescription;
-      play.innerHTML = 'Keep playing <span aria-hidden="true">↗</span>';
+    touch.setActive(active);
+    menu.hidden = active || inventoryOpen;
+    crosshair.hidden = !active;
+    hint.hidden = !active || touch.enabled;
+    document.body.classList.toggle('playing', active);
+    if (active) {
+      hasPlayed = true;
+      play.blur();
+    } else {
+      outline.visible = false;
+      if (!history.backend?.saveError) void history.flush();
+      if (hasPlayed) {
+        document.querySelector('#menu-title').textContent = 'Take your time.';
+        document.querySelector('#menu-description').textContent = currentWorldDescription;
+        play.innerHTML = 'Keep playing <span aria-hidden="true">↗</span>';
+      }
     }
+    queueMicrotask(() => history.sendPose());
+  }
+  function pauseGame() {
+    setPlaying(false);
+    if (document.pointerLockElement === canvas) controls.unlock();
+  }
+  controls.addEventListener('lock', () => {
+    if (inventoryOpen || !history.ready) { controls.unlock(); return; }
+    setPlaying(true);
   });
+  controls.addEventListener('unlock', () => setPlaying(false));
   window.addEventListener('blur', () => {
+    inventoryReturnToPlay = false;
+    if (inventoryOpen) inventoryView.back.textContent = 'Back to menu';
     clearInput();
-    if (controls.isLocked) controls.unlock();
+    pauseGame();
   });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
+      inventoryReturnToPlay = false;
+      if (inventoryOpen) inventoryView.back.textContent = 'Back to menu';
       clearInput();
-      if (controls.isLocked) controls.unlock();
+      pauseGame();
       if (!history.backend?.saveError) void history.flush();
     }
   });
   window.addEventListener('pagehide', () => { if (!history.backend?.saveError) void history.flush(); });
 
   document.addEventListener('keydown', (event) => {
-    if (event.target.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+    const typing = event.target.closest?.('input, textarea, select, [contenteditable="true"]');
+    const modified = event.metaKey || event.ctrlKey || event.altKey;
+    if (inventoryOpen) {
+      if (event.code === 'Escape') { event.preventDefault(); closeInventory(false); return; }
+      if (!typing && !modified && !event.repeat) {
+        if (event.code === 'KeyI') { event.preventDefault(); closeInventory(true); }
+        else if (/^Digit[1-9]$/.test(event.code)) { event.preventDefault(); const index = Number(event.code.slice(-1)) - 1; if (!inventoryView.hotbarKey(index) && inventory.select(index)) inventoryChanged(); }
+      }
+      return;
+    }
+    if (typing) return;
+    if (event.code === 'KeyI' && !event.repeat && !modified) { event.preventDefault(); openInventory(); return; }
     if (event.code === 'KeyP' && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault(); diagnostics.setEnabled(!diagnostics.enabled); return;
     }
@@ -247,7 +355,10 @@ function start() {
       toggleSound();
       return;
     }
-    if (/^Digit[0-9]$/.test(event.code)) select(BUILD_BLOCKS[event.code === 'Digit0' ? 9 : Number(event.code.slice(-1)) - 1]);
+    if (/^Digit[1-9]$/.test(event.code) && !event.repeat && !modified) {
+      event.preventDefault(); if (inventory.select(Number(event.code.slice(-1)) - 1)) inventoryChanged(); return;
+    }
+    if (event.code === 'Digit0' && !event.repeat && !modified) { event.preventDefault(); select(DOOR); return; }
     if (event.code === 'KeyL' && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
       select(LANTERN);
@@ -263,7 +374,7 @@ function start() {
       if (!event.repeat) cycleFlower();
       return;
     }
-    if (!controls.isLocked) return;
+    if (!playing) return;
     if (['KeyZ', 'KeyY'].includes(event.code) && !event.altKey) {
       event.preventDefault();
       if (!event.repeat) replayEdit(event.code === 'KeyY' || event.shiftKey);
@@ -277,39 +388,39 @@ function start() {
     if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyC', 'KeyV', 'KeyF', 'KeyE', 'ShiftLeft', 'ShiftRight'].includes(event.code)) event.preventDefault();
     keys.add(event.code);
     if (event.code === 'Space' && !event.repeat && !player.flying) jumpQueued = true;
-    if (event.code === 'KeyV' && !event.repeat) {
-      player.flying = !player.flying;
-      player.vy = 0;
-      player.grounded = false;
-      jumpQueued = false;
-      footsteps.reset();
-      sounds.stop();
-      updateMode();
-      notify(player.flying ? 'Flying · Space to rise, C to descend' : 'Walking mode');
-    }
+    if (event.code === 'Escape') pauseGame();
+    if (event.code === 'KeyV' && !event.repeat) toggleFlight();
     if (event.code === 'KeyF' && !event.repeat) editBlock(true);
     if (event.code === 'KeyE' && !event.repeat) {
       updateTarget();
       if (target) {
         const block = buildBlock(world.get(target.x, target.y, target.z));
-        select(block);
-        notify(`${BLOCK_NAMES[block]} selected`);
+        if (inventory.mode === 'gather' && !inventory.count(block)) notify(`Collect ${BLOCK_NAMES[block]} first.`);
+        else { select(block); notify(`${BLOCK_NAMES[block]} selected`); }
       } else notify('Look at a nearby block to pick its material.');
     }
   });
+  function toggleFlight() {
+    player.flying = !player.flying;
+    player.vy = 0; player.grounded = false; jumpQueued = false;
+    touch.reset(); footsteps.reset(); sounds.stop(); updateMode();
+    notify(player.flying ? touch.enabled ? 'Flying · Hold Up or Down' : 'Flying · Space to rise, C to descend' : 'Walking mode');
+  }
   document.addEventListener('keyup', (event) => keys.delete(event.code));
   canvas.addEventListener('contextmenu', (event) => event.preventDefault());
   canvas.addEventListener('mousedown', (event) => {
-    if (!controls.isLocked) return;
+    if (!playing || touch.enabled) return;
     if (event.button === 0 || event.button === 2) {
       event.preventDefault();
       editBlock(event.button === 2 || event.ctrlKey);
     }
   });
-  document.querySelectorAll('.slot').forEach((slot) => slot.addEventListener('click', () => {
-    if (slot.hasAttribute('data-flower') && isFlower(selected)) cycleFlower();
-    else select(Number(slot.dataset.block));
-  }));
+  hotbar.addEventListener('click', event => {
+    const slot = event.target.closest('[data-slot]'); if (!slot) return;
+    const index = Number(slot.dataset.slot);
+    if (index === inventory.selected && isFlower(selected)) cycleFlower();
+    else if (inventory.select(index)) inventoryChanged();
+  });
 
   function updateTarget() {
     camera.updateMatrixWorld();
@@ -330,7 +441,7 @@ function start() {
     if (door) b.maxY++;
     outline.position.set((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2, (b.minZ + b.maxZ) / 2);
     outline.scale.set(b.maxX - b.minX + 0.008, b.maxY - b.minY + 0.008, b.maxZ - b.minZ + 0.008);
-    outline.visible = controls.isLocked;
+    outline.visible = playing;
   }
 
   async function useDoor() {
@@ -362,6 +473,7 @@ function start() {
     let { x, y, z } = target;
     let nextBlock;
     if (place) {
+      if (!selected) { notify('Choose a block in your hotbar. Open inventory with I to move one there.'); return; }
       const replacingFlower = isFlower(world.get(x, y, z));
       if (selected === SLAB) {
         const placement = slabPlacement(world, target);
@@ -423,6 +535,8 @@ function start() {
     notify({ blocked: 'That space is occupied by a player. Move clear, then try again.',
       changed: 'Someone changed that block. This action cannot overwrite their edit.',
       storage: 'Your latest changes could not be saved. Retry saving or export a backup from the menu.',
+      supplies: 'You don’t have enough of that material. Break blocks to collect more.',
+      inventory_full: 'Your inventory is full. Make room before collecting more.',
       disconnected: 'Waiting for the host to reconnect…', busy: 'Let the current edits finish, then try again.', reach: 'That block is out of reach.' }[result.reason] || fallback);
   }
 
@@ -439,11 +553,11 @@ function start() {
   function finishEdit(change, normal, changes = [change]) {
     const { from, to } = change;
     if (changes.every(c => isDoor(c.from) && isDoor(c.to))) {
-      if (controls.isLocked) sounds.play(DOOR, doorState(to).open ? 'open' : 'close');
+      if (playing) sounds.play(DOOR, doorState(to).open ? 'open' : 'close');
     }
     else {
       const placing = isSolid(to) || isFlower(to);
-      if (controls.isLocked) sounds.play(placing ? to : from, placing ? 'place' : 'break');
+      if (playing) sounds.play(placing ? to : from, placing ? 'place' : 'break');
       for (const c of changes) if ((!isSolid(c.to) && !isFlower(c.to)) && (isSolid(c.from) || isFlower(c.from))) particles.burst(c.x, c.y, c.z, c.from, normal);
     }
     rebuildMeshes(changes);
@@ -468,7 +582,8 @@ function start() {
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    graphics.resize();
+    diagnostics.reset();
   });
 
   let previous = performance.now();
@@ -479,17 +594,17 @@ function start() {
     const frameStarted = performance.now();
     const elapsed = Math.min((now - previous) / 1000, 0.1);
     previous = now;
-    if (controls.isLocked && history.ready) {
+    if (playing && history.ready) {
       accumulator += elapsed;
       while (accumulator >= fixedStep) {
         const before = { ...player };
         stepPlayer(player, world, {
-          forward: Number(keys.has('KeyW')) - Number(keys.has('KeyS')),
-          strafe: Number(keys.has('KeyD')) - Number(keys.has('KeyA')),
+          forward: Number(keys.has('KeyW')) - Number(keys.has('KeyS')) + touch.forward,
+          strafe: Number(keys.has('KeyD')) - Number(keys.has('KeyA')) + touch.strafe,
           yaw: camera.rotation.y,
           jump: jumpQueued,
-          sprint: keys.has('ShiftLeft') || keys.has('ShiftRight'),
-          rise: Number(keys.has('Space')) - Number(keys.has('KeyC')),
+          sprint: keys.has('ShiftLeft') || keys.has('ShiftRight') || touch.sprint,
+          rise: Number(keys.has('Space')) - Number(keys.has('KeyC')) + touch.rise,
         }, fixedStep);
         if (footsteps.update(before, player)) {
           const x = Math.floor(player.x), z = Math.floor(player.z);
@@ -512,6 +627,7 @@ function start() {
     history.update(elapsed);
     if (history.mode) chunkRenderer.update(player);
     play.disabled = !history.ready || !chunkRenderer.readyAt(player);
+    inventoryButton.disabled = !history.ready;
     timeToggle.disabled = !history.ready;
     if (history.ready && !chunkRenderer.readyAt(player)) connection.textContent = 'Preparing nearby terrain…';
     else if (history.ready && connection.textContent === 'Preparing nearby terrain…') connection.textContent = history.mode === 'single' ? 'Single player · Private world' : 'Connected';
@@ -526,7 +642,7 @@ function start() {
     sky.clock.phase = history.phase();
     sky.clock.held = history.clock.held;
     const skyState = sky.update(history.clock.running ? elapsed : 0, camera);
-    lanternLighting.update(controls.isLocked ? elapsed : 0, camera.position, skyState.daylight);
+    lanternLighting.update(playing ? elapsed : 0, camera.position, skyState.daylight);
     const label = `${skyState.label} · ${sky.clock.held ? 'held' : 'cycling'}`;
     if (timeLabel.textContent !== label) {
       timeLabel.textContent = label;
@@ -534,9 +650,12 @@ function start() {
       timeToggle.setAttribute('aria-label', sky.clock.held ? 'Resume time of day' : 'Hold time of day');
     }
     document.body.classList.toggle('night', skyState.daylight < 0.3);
-    renderer.info.reset();
-    renderer.render(scene, camera);
-    diagnostics.frame(frameStarted, performance.now());
+    const rendered = graphics.limiter.allow(now);
+    if (rendered) {
+      renderer.info.reset();
+      renderer.render(scene, camera);
+    }
+    diagnostics.frame(frameStarted, performance.now(), rendered);
   });
 
   const nameInput = document.querySelector('#player-name');
@@ -553,8 +672,12 @@ function start() {
   const retryButton = document.querySelector('#retry-connection');
   try { nameInput.value = localStorage.getItem('blockfield-name') || ''; } catch { /* Names are optional. */ }
   history.pose = () => ({ x: player.x, y: player.y, z: player.z, yaw: camera.rotation.y, pitch: camera.rotation.x,
-    active: controls.isLocked, flying: player.flying });
+    active: playing, flying: player.flying });
   history.callbacks = {
+    supplies(saved) {
+      if (!validInventory(saved) || saved.mode !== 'gather') return;
+      inventory.restore({ ...saved, selected: inventory.selected }); renderHotbar(); inventoryView.render();
+    },
     status(text) {
       connection.textContent = text;
       play.disabled = true;
@@ -567,9 +690,9 @@ function start() {
       updateMode(); clearInput(); syncCamera(); rebuildMeshes();
       error.hidden = true;
       nameInput.value = message.self.name;
-      currentWorldDescription = `${message.worldName} · Seed: ${message.world.seed}`;
+      currentWorldDescription = `${message.worldName} · ${message.gameMode === 'gather' ? 'Gather' : 'Creative'} · Seed: ${message.world.seed}`;
       document.querySelector('#menu-description').textContent = currentWorldDescription;
-      select(1);
+      loadInventory(message);
       play.disabled = true;
       retryButton.hidden = true;
       saveNow.hidden = exportWorld.hidden = history.mode !== 'single';
@@ -596,7 +719,7 @@ function start() {
       saveStatus.textContent = status.state === 'error' ? `Not saved: ${status.message}` : status.message;
       saveNow.disabled = status.state === 'saving';
       saveNow.textContent = status.state === 'error' ? 'Retry saving' : 'Save now';
-      if (status.state === 'error' && controls.isLocked) controls.unlock();
+      if (status.state === 'error') { closeInventory(false); pauseGame(); }
     },
     chunks(keys) {
       for (const key of keys) chunkRenderer.mark(key);
@@ -604,8 +727,9 @@ function start() {
     },
     edit(message) { finishEdit(message.changes[0], undefined, message.changes); },
     disconnected() {
+      closeInventory(false);
       play.disabled = true;
-      if (controls.isLocked) controls.unlock();
+      pauseGame();
       clearInput();
       if (otherPlayers.sync([], history.selfId)) renderer.shadowMap.needsUpdate = true;
     },
@@ -627,8 +751,11 @@ function start() {
     } catch { joinLink.focus(); joinLink.select(); notify('Select and copy the Wi-Fi link.'); }
   });
   function openSession(mode) {
+    closeInventory(false); inventoryProfile = null;
+    pauseGame();
     diagnostics.reset();
     chooser.hidden = true; play.hidden = false; leaveButton.hidden = false;
+    inventoryButton.hidden = false; inventoryButton.disabled = true;
     inviteRow.hidden = mode !== 'multiplayer';
     document.querySelector('#world-footnote').textContent = mode === 'single'
       ? 'Private world · Autosaved in this browser'
@@ -645,7 +772,7 @@ function start() {
   document.querySelector('#create-world').addEventListener('click', () => {
     void navigator.storage?.persist?.().catch(() => {});
     const seed = document.querySelector('#world-seed').value.trim() || crypto.getRandomValues(new Uint32Array(1))[0].toString(36);
-    void localWorld(() => history.create(nameInput.value, document.querySelector('#world-name').value.trim() || 'My world', seed));
+    void localWorld(() => history.create(nameInput.value, document.querySelector('#world-name').value.trim() || 'My world', seed, document.querySelector('#world-mode').value));
   });
   document.querySelector('#join-server').addEventListener('click', () => {
     try {
@@ -655,10 +782,13 @@ function start() {
     } catch (cause) { error.hidden = false; error.textContent = cause.message; }
   });
   function showChooser() {
+    closeInventory(false); inventoryProfile = null;
+    pauseGame();
     diagnostics.reset();
     history.disconnect(); chunkRenderer.reset(); world.chunks.clear(); lanternLighting.sync(world);
     otherPlayers.sync([], null); clearInput();
     chooser.hidden = false; play.hidden = true; leaveButton.hidden = true; inviteRow.hidden = true;
+    inventoryButton.hidden = true; inventoryButton.disabled = true;
     saveRow.hidden = true;
     connection.textContent = 'Choose single player or multiplayer';
     document.querySelector('#player-count').textContent = 'choose a world';
@@ -692,7 +822,7 @@ function start() {
       for (const save of saves) {
         const row = document.createElement('div'); row.className = 'saved-world'; row.dataset.worldId = save.id;
         const title = document.createElement('span'); title.textContent = save.name || 'Saved world';
-        title.title = `Seed: ${save.world?.seed || 'unknown'}`;
+        title.title = `${save.gameMode === 'gather' ? 'Gather' : 'Creative'} · Seed: ${save.world?.seed || 'unknown'}`;
         const resume = document.createElement('button'); resume.type = 'button'; resume.textContent = 'Open';
         resume.setAttribute('aria-label', `Open ${save.name || 'saved world'}`);
         resume.addEventListener('click', () => void localWorld(() => history.resume(nameInput.value, save.id)));

@@ -3,12 +3,13 @@ services:
     build: .
     image: blockfield:local
     ports:
-      - "${BLOCKFIELD_PORT:-5173}:5173"
+      - "${BLOCKFIELD_PORT:-6200}:6200"
     environment:
       HOST: 0.0.0.0
-      PORT: 5173
+      PORT: 6200
       WORLD_NAME: "${WORLD_NAME:-Blockfield Together}"
       WORLD_SEED: "${WORLD_SEED:-Blockfield}"
+      GAME_MODE: "${GAME_MODE:-gather}"
       DATA_DIR: /app/data
     volumes:
       - blockfield-data:/app/data

@@ -5,6 +5,7 @@ import { WorldJobs } from './jobs.js';
 import { nearbyChunks, WORLD_SIZE, terrainColumn, CHUNK_SIZE } from './generation.js';
 import { captureSave, restoreEdits, newWorldId } from './saves.js';
 import { browserSaves, saveMessage } from './browser-saves.js';
+import { Inventory, emptyGatherInventory } from './inventory.js';
 const motionStamp = (pose, clock) => [pose.x, pose.y, pose.z, pose.yaw % (Math.PI * 2), pose.pitch, pose.flying === true, clock.phase, clock.held].join(':');
 
 export function serverURL(value, current = location.origin) {
@@ -24,15 +25,19 @@ export class LocalSession extends MultiplayerClient {
   saveElapsed = 0;
   saveRevision = 0;
 
-  async start(name, title, seed, saved = null) {
+  async start(name, title, seed, saved = null, gameMode = 'gather') {
     this.name = name || 'Builder'; this.selfId = 'single-player';
     this.world.configure(saved?.world || { seed, size: WORLD_SIZE }, true);
     this.id = saved?.id || newWorldId(); this.title = saved?.name || title || 'My world'; this.createdAt = saved?.createdAt || Date.now();
     this.saveRevision = saved?.saveRevision || 0;
+    this.gameMode = saved ? saved.gameMode || 'creative' : gameMode;
+    this.resources = this.gameMode === 'gather' ? new Inventory(saved?.inventory || emptyGatherInventory()) : null;
+    this.initialInventory = this.resources?.snapshot() || saved?.inventory || null;
     if (saved) restoreEdits(this.world, saved);
     this.clock = new DayClock(); this.clock.running = false;
     if (saved) { this.clock.phase = saved.clock.phase; this.clock.held = saved.clock.held; }
     this.history = new EditHistory(this.world);
+    this.history.inventory = this.resources;
     const x = WORLD_SIZE / 2, z = WORLD_SIZE / 2;
     const y = terrainColumn(this.world.seed, x, z).top + 1.01;
     this.self = { id: this.selfId, name: this.name, x: x + 0.5, y, z: z + 0.5, yaw: 0, pitch: -0.12, flying: false, color: '#db8b58', ...saved?.player };
@@ -40,13 +45,17 @@ export class LocalSession extends MultiplayerClient {
     const committed = await this.save();
     if (!committed || this.closed) throw new Error(this.saveError || 'The world could not be saved.');
     this.starting = false; this.ready = true;
-    this.callbacks.welcome?.({ self: this.self, world: this.world.metadata(), worldName: this.title, players: [this.self], maxPlayers: 1, urls: [], saved: true });
+    this.callbacks.welcome?.({ self: this.self, world: this.world.metadata(), worldName: this.title, worldId: this.id, inventory: this.initialInventory,
+      gameMode: this.gameMode, players: [this.self], maxPlayers: 1, urls: [], saved: true });
     this.callbacks.players?.([this.self]);
   }
 
   snapshot() {
+    let inventory = this.starting ? this.initialInventory : this.inventory?.();
+    if (this.resources && !this.starting) inventory = { ...this.resources.snapshot(), selected: inventory?.selected ?? this.resources.selected };
     return captureSave({ world: this.world, id: this.id, name: this.title, createdAt: this.createdAt, clock: this.clock,
-      player: this.starting ? this.self : this.pose?.() || this.self });
+      player: this.starting ? this.self : this.pose?.() || this.self, gameMode: this.gameMode,
+      inventory });
   }
 
   save() {
@@ -100,6 +109,12 @@ export class LocalSession extends MultiplayerClient {
     if (!this.ready || this.closed) return { ok: false, reason: 'disconnected' };
     if (method === 'save') return { ok: await this.save() };
     if (this.saveError && method !== 'name') return { ok: false, reason: 'storage' };
+    if (method === 'craft' || method === 'inventory') {
+      const result = (method === 'craft' ? this.resources?.craft(args.block) : this.resources?.action(args)) || { ok: false, reason: 'invalid' };
+      if (!result.ok) return result;
+      this.callbacks.supplies?.(this.resources.snapshot());
+      return { ...result, ok: await this.save(), reason: this.saveError ? 'storage' : undefined };
+    }
     if (method === 'time') {
       if (args.action === 'hold') this.clock.held = !this.clock.held;
       else if (args.action === 'next') this.clock.next();
@@ -118,6 +133,8 @@ export class LocalSession extends MultiplayerClient {
       if (this.closed) return { ok: false, reason: 'disconnected' };
       const p = this.pose?.() || this.self;
       const { x, y, z, block, facing } = args;
+      this.history.spendSlot = this.resources && ['edit', 'placeDoor', 'placeLantern', 'placeFlower'].includes(method) ? args.slot ?? -1 : undefined;
+      if (this.resources && Number.isInteger(args.slot)) this.resources.select(args.slot);
       let result;
       if (method === 'edit') result = this.history.edit(x, y, z, block, p);
       else if (method === 'placeDoor') result = this.history.placeDoor(x, y, z, facing, p);
@@ -126,7 +143,10 @@ export class LocalSession extends MultiplayerClient {
       else if (method === 'toggleDoor') result = this.history.toggleDoor(x, y, z, p);
       else if (method === 'undo' || method === 'redo') result = this.history[method](p);
       else return { ok: false, reason: 'invalid' };
-      if (result.ok) this.callbacks.edit?.({ changes: result.changes, by: this.selfId, method });
+      if (result.ok) {
+        if (this.resources) this.callbacks.supplies?.(this.resources.snapshot());
+        this.callbacks.edit?.({ changes: result.changes, by: this.selfId, method });
+      }
       if (result.ok && !await this.save()) return { ok: false, reason: 'storage' };
       return result;
     } catch (error) {
@@ -151,17 +171,18 @@ export class GameSession {
   phase() { return this.backend?.phase() ?? 0.18; }
   update(seconds) { this.backend?.update(seconds); }
   sendPose() { this.backend?.sendPose(); }
-  request(method, args) { return this.backend?.request(method, args) || Promise.resolve({ ok: false, reason: 'disconnected' }); }
+  request(method, args = {}) { return this.backend?.request(method, { ...args, slot: this.inventory?.().selected }) || Promise.resolve({ ok: false, reason: 'disconnected' }); }
   disconnect() { this.backend?.disconnect(); this.backend = null; this.mode = null; }
 
   setup(backend, mode, name) {
     this.disconnect(); this.backend = backend; this.mode = mode; this.name = name;
     backend.callbacks = this.callbacks; backend.pose = () => this.pose?.();
+    backend.inventory = () => this.inventory?.();
   }
   connect(name) { const backend = new MultiplayerClient(this.world); this.setup(backend, 'multiplayer', name); backend.connect(name); }
-  async create(name, title, seed) {
+  async create(name, title, seed, gameMode = 'gather') {
     const backend = new LocalSession(this.world); this.setup(backend, 'single', name);
-    try { await backend.start(name, title, seed); } catch (error) { backend.disconnect(); throw error; }
+    try { await backend.start(name, title, seed, null, gameMode); } catch (error) { backend.disconnect(); throw error; }
   }
   async resume(name, id) {
     const saved = await browserSaves.load(id), backend = new LocalSession(this.world);

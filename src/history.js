@@ -31,7 +31,10 @@ export class EditHistory {
       }
     }
     // Every check finishes before any cell changes, keeping fixture edits atomic.
+    const balance = this.inventory?.plan(changes, this.spendSlot);
+    if (balance && !balance.ok) return balance;
     for (const c of changes) this.world.set(c.x, c.y, c.z, c.to);
+    if (balance) this.inventory.applyBalance(balance);
     return { ok: true, changes, change: changes[0] };
   }
 

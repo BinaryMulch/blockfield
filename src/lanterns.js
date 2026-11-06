@@ -1,77 +1,127 @@
 import * as THREE from 'three';
-import { SIZE, LANTERN } from './world.js';
-import { CHUNK_SIZE } from './generation.js';
+import { LANTERN } from './world.js';
+import { WorldJobs } from './jobs.js';
+import { lightBounds, captureLightBlocks, buildLanternField } from './lantern-field.js';
+export { LANTERN_RANGE } from './lantern-field.js';
 
-export const MAX_LANTERN_LIGHTS = 8;
-export const LANTERN_RANGE = 8;
-export const LANTERN_INTENSITY = 9;
-
-export function nearestLanterns(sources, position, limit = MAX_LANTERN_LIGHTS) {
-  const distance = source => (source.x + 0.5 - position.x) ** 2
-    + (source.y + 0.45 - position.y) ** 2 + (source.z + 0.5 - position.z) ** 2;
-  return [...sources].sort((a, b) => distance(a) - distance(b) || a.index - b.index).slice(0, limit);
+function fieldTexture(data = new Uint8Array(1), width = 1, height = 1, depth = 1) {
+  const texture = new THREE.Data3DTexture(data, width, height, depth);
+  texture.format = THREE.RedFormat; texture.type = THREE.UnsignedByteType;
+  texture.minFilter = texture.magFilter = THREE.NearestFilter;
+  texture.needsUpdate = true;
+  return texture;
 }
 
-export class LanternLighting {
-  sources = [];
-  activeSources = [];
-  dirty = true;
-  elapsed = 0;
-  lastPosition = new THREE.Vector3();
+const varyings = '\nvarying vec3 vLanternPosition;\nvarying vec3 vLanternNormal;\n';
+const uniforms = `
+uniform highp sampler3D lanternField;
+uniform vec3 lanternOrigin;
+uniform vec3 lanternSize;
+uniform vec3 lanternColor;
+uniform float lanternStrength;
+uniform float lanternSurfaceOffset;
+`;
 
-  constructor(scene, world) {
-    this.group = new THREE.Group();
-    this.group.name = 'lantern-lights';
-    this.lights = Array.from({ length: MAX_LANTERN_LIGHTS }, (_, index) => {
-      const light = new THREE.PointLight('#ffb65c', 0, LANTERN_RANGE, 2);
-      light.name = `lantern-light-${index}`;
-      // Reuse a fixed set of unshadowed lights; the sun retains the shadow map.
-      this.group.add(light);
-      return light;
-    });
-    scene.add(this.group);
+export class LanternLighting {
+  revision = 0;
+  dirty = false;
+  busy = false;
+  sourceCount = 0;
+  chunkSources = new Map();
+
+  constructor(scene, world, { jobs, onError = console.error } = {}) {
+    this.jobs = jobs || null;
+    this.useWorker = jobs === undefined && typeof Worker === 'function';
+    this.onError = onError;
+    this.uniforms = { lanternField: { value: fieldTexture() }, lanternOrigin: { value: new THREE.Vector3() },
+      lanternSize: { value: new THREE.Vector3(1, 1, 1) }, lanternColor: { value: new THREE.Color('#ffb65c') }, lanternStrength: { value: 1.25 } };
     this.sync(world);
   }
 
+  applyMaterial(material, { surfaceOffset = 0.02 } = {}) {
+    if (material.userData.voxelLanterns) return;
+    material.userData.voxelLanterns = true;
+    material.customProgramCacheKey = () => 'voxel-lantern-field-v1';
+    material.onBeforeCompile = shader => {
+      Object.assign(shader.uniforms, this.uniforms);
+      shader.uniforms.lanternSurfaceOffset = { value: surfaceOffset };
+      shader.vertexShader = shader.vertexShader.replace('#include <common>', `#include <common>${varyings}`)
+        .replace('#include <project_vertex>', `#include <project_vertex>
+          vec4 lanternPosition = vec4(transformed, 1.0);
+          vec3 lanternNormal = objectNormal;
+          #ifdef USE_INSTANCING
+            lanternPosition = instanceMatrix * lanternPosition;
+            lanternNormal = mat3(instanceMatrix) * lanternNormal;
+          #endif
+          vLanternPosition = (modelMatrix * lanternPosition).xyz;
+          vLanternNormal = normalize(mat3(modelMatrix) * lanternNormal);
+        `);
+      shader.fragmentShader = shader.fragmentShader.replace('#include <common>', `#include <common>${varyings}${uniforms}`)
+        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+          vec3 lanternCell = floor(vLanternPosition + normalize(vLanternNormal) * lanternSurfaceOffset) - lanternOrigin;
+          if (all(greaterThanEqual(lanternCell, vec3(0.0))) && all(lessThan(lanternCell, lanternSize))) {
+            float blockLight = texture(lanternField, (lanternCell + 0.5) / lanternSize).r;
+            totalEmissiveRadiance += diffuseColor.rgb * lanternColor * lanternStrength * blockLight;
+          }
+        `);
+    };
+    material.needsUpdate = true;
+  }
+
+  clear() {
+    const texture = this.uniforms.lanternField.value;
+    if (texture.image.width !== 1 || this.sourceCount) {
+      texture.dispose(); this.uniforms.lanternField.value = fieldTexture();
+    }
+    this.uniforms.lanternSize.value.set(1, 1, 1); this.sourceCount = 0;
+  }
+
   sync(world, keys = null) {
+    this.world = world; this.revision++; this.dirty = true;
+    if (!keys) { this.chunkSources.clear(); this.clear(); this.area = null; }
     if (world.chunks) {
-      if (!keys) this.chunkSources = new Map();
-      this.chunkSources ||= new Map();
       for (const key of keys || world.chunks.keys()) {
         const chunk = world.chunks.get(key);
-        if (!chunk) { this.chunkSources.delete(key); continue; }
-        const sources = [];
-        for (let index = 0; index < chunk.blocks.length; index++) if (chunk.blocks[index] === LANTERN) {
-          sources.push({ index: (chunk.cx + chunk.cz * 32) * chunk.blocks.length + index,
-            x: chunk.cx * CHUNK_SIZE + index % CHUNK_SIZE, y: Math.floor(index / (CHUNK_SIZE * CHUNK_SIZE)),
-            z: chunk.cz * CHUNK_SIZE + Math.floor(index / CHUNK_SIZE) % CHUNK_SIZE });
-        }
-        this.chunkSources.set(key, sources);
+        if (chunk) this.chunkSources.set(key, chunk.blocks.includes(LANTERN));
+        else this.chunkSources.delete(key);
       }
-      this.sources = [...this.chunkSources.values()].flat(); this.dirty = true;
-      return;
-    }
-    this.sources = [];
-    for (let index = 0; index < world.blocks.length; index++) {
-      if (world.blocks[index] !== LANTERN) continue;
-      this.sources.push({ index, x: index % SIZE, y: Math.floor(index / (SIZE * SIZE)), z: Math.floor(index / SIZE) % SIZE });
-    }
-    this.dirty = true;
+      this.hasSources = [...this.chunkSources.values()].some(Boolean);
+    } else this.hasSources = world.blocks.includes(LANTERN);
+    if (!this.hasSources) { this.clear(); this.dirty = false; }
   }
 
   update(seconds, position, daylight) {
-    this.elapsed += seconds;
-    if (this.dirty || this.elapsed >= 0.15 && this.lastPosition.distanceToSquared(position) >= 0.25) {
-      this.activeSources = nearestLanterns(this.sources, position);
-      this.lastPosition.copy(position);
-      this.elapsed = 0;
-      this.dirty = false;
-    }
-    const intensity = LANTERN_INTENSITY * (1 - 0.6 * THREE.MathUtils.clamp(daylight, 0, 1));
-    this.lights.forEach((light, index) => {
-      const source = this.activeSources[index];
-      if (source) light.position.set(source.x + 0.5, source.y + 0.45, source.z + 0.5);
-      light.intensity = source ? intensity : 0;
-    });
+    if (this.disposed) return;
+    this.uniforms.lanternStrength.value = 1.25 * (1 - 0.6 * THREE.MathUtils.clamp(daylight, 0, 1));
+    if (!this.hasSources) return;
+    const bounds = lightBounds(this.world, position), area = `${bounds.x},${bounds.z},${bounds.width},${bounds.depth}`;
+    if (area !== this.area) { this.area = area; this.revision++; this.dirty = true; }
+    if (!this.dirty || this.busy) return this.pending;
+    if (this.world.chunks && ![...this.chunkSources].some(([key, present]) => {
+      if (!present) return false;
+      const [cx, cz] = key.split(',').map(Number);
+      return cx * 16 >= bounds.x && cx * 16 < bounds.x + bounds.width && cz * 16 >= bounds.z && cz * 16 < bounds.z + bounds.depth;
+    })) { this.clear(); this.dirty = false; return; }
+    this.dirty = false; this.busy = true;
+    const revision = this.revision, blocks = captureLightBlocks(this.world, bounds);
+    const job = { kind: 'light', ...bounds, blocks };
+    if (this.useWorker && !this.jobs) this.jobs = new WorldJobs();
+    const work = this.jobs ? this.jobs.call(job, [blocks.buffer]) : Promise.resolve(buildLanternField(job));
+    this.pending = work.then(({ light, sources }) => {
+      if (revision !== this.revision) return;
+      this.sourceCount = sources;
+      if (!sources) { this.clear(); return; }
+      const { width, height, depth } = bounds, texture = this.uniforms.lanternField.value;
+      if (texture.image.width === width && texture.image.height === height && texture.image.depth === depth) {
+        texture.image.data = light; texture.needsUpdate = true;
+      } else {
+        texture.dispose(); this.uniforms.lanternField.value = fieldTexture(light, width, height, depth);
+      }
+      this.uniforms.lanternOrigin.value.set(bounds.x, 0, bounds.z);
+      this.uniforms.lanternSize.value.set(width, height, depth);
+    }).catch(error => { if (!this.disposed) { this.clear(); this.onError(error); } }).finally(() => { this.busy = false; this.pending = null; });
+    return this.pending;
   }
+
+  dispose() { this.disposed = true; this.revision++; this.jobs?.dispose(); this.uniforms.lanternField.value.dispose(); }
 }

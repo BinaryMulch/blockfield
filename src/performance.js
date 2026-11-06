@@ -40,9 +40,9 @@ export class PerformanceOverlay {
 
   reset() { this.frames.reset(); this.lastPaint = -Infinity; }
 
-  frame(start, end) {
+  frame(start, end, rendered = true) {
     if (!this.enabled || document.hidden) return;
-    this.frames.add(start, end);
+    this.frames.add(start, end, rendered);
     if (end - this.lastPaint >= 500) { this.lastPaint = end; this.paint(); }
     if (!this.controller && end >= this.nextPoll) void this.poll();
   }
@@ -74,8 +74,8 @@ export class PerformanceOverlay {
       client: { ...client, ...this.frames.summary(), heapUsedEstimate: Number.isFinite(heap) ? heap : null,
         sampleFrames: this.frames.intervals.values.length },
       server: this.server, serverStatus: this.serverState,
-      notes: ['Frame statistics cover the latest 240 visible frames and reset on play/pause or world changes.',
-        'Main frame work is elapsed game-loop work including WebGL submission; it is not total CPU usage or GPU execution time.',
+      notes: ['FPS and frame intervals cover the latest 240 rendered frames, excluding callbacks skipped by the FPS cap, and reset on play/pause, graphics changes, or world changes.',
+        'Main work covers the latest 240 animation callbacks, including those without rendering. It is elapsed game-loop work, not total CPU usage or GPU execution time.',
         'Worker work excludes queue and message transfer; worker round trip includes them. Timings cover the latest 60 jobs.',
         'Browser heap is a browser-provided estimate, not total browser or GPU memory. Worker/shared-heap coverage varies; it may be unavailable.',
         'Server CPU is for the whole Node process: 100% equals one logical CPU core. Development includes Vite.',
@@ -87,6 +87,8 @@ export class PerformanceOverlay {
     const set = (key, value) => { this.fields.get(key).textContent = value; };
     set('fps', Number.isFinite(c.fps) ? c.fps.toFixed(0) : '—');
     set('context', c.context);
+    set('graphics', `${c.graphics.fpsLimit} FPS / ${Math.round(c.graphics.resolutionScale * 100)}%`);
+    set('buffer', `${c.graphics.bufferWidth} × ${c.graphics.bufferHeight}`);
     set('frame', `${ms(c.frameMs.mean)} / ${ms(c.frameMs.p95)}`);
     set('worst', ms(c.frameMs.max));
     set('work', `${ms(c.workMs.mean)} / ${ms(c.workMs.p95)}`);
@@ -97,6 +99,7 @@ export class PerformanceOverlay {
     set('mesh', `${ms(c.mesh?.workMs?.mean)} / ${ms(c.mesh?.turnaroundMs?.mean)}`);
     set('generate', c.mode === 'single' ? `${ms(c.generate?.workMs?.mean)} / ${ms(c.generate?.turnaroundMs?.mean)}` : 'Runs on host');
     set('jobs', `${c.mesh?.pending || 0} / ${c.generate?.pending || 0}`);
+    set('lighting', `${ms(c.lighting.jobs?.workMs?.mean)} / ${c.lighting.sources} / ${c.lighting.jobs?.pending || 0}`);
     set('server', s ? `${this.serverState} · ${s.mode}` : this.serverState);
     set('cpu', s ? percent(s.cpuPercent) : '—');
     set('rss', s ? bytes(s.memory.rss) : '—');

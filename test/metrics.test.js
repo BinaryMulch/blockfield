@@ -34,6 +34,19 @@ test('server CPU is normalized to one core and allows multicore process usage', 
   assert.equal(cpuPercent({ user: 100, system: 100 }, 0), 0);
 });
 
+test('FPS measures rendered frames while main work includes callbacks skipped by the cap', () => {
+  const frames = new FrameMetrics();
+  frames.add(0, 3, true);
+  frames.add(16, 17, false);
+  frames.add(32, 35, true);
+  frames.add(48, 49, false);
+  frames.add(64, 67, true);
+  assert.equal(frames.summary().fps, 31.25);
+  assert.equal(frames.summary().frameMs.count, 2);
+  assert.equal(frames.summary().workMs.count, 5);
+  assert.equal(frames.summary().workMs.mean, 2.2);
+});
+
 test('server sampler measures process activity rather than presenting loop activity as CPU', () => {
   const metrics = new ServerMetrics();
   try {

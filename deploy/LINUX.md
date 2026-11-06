@@ -1,6 +1,6 @@
 # Run Blockfield on a Linux VM or a Mac
 
-The same Node.js server runs on both platforms. It serves the browser game and multiplayer WebSocket connection on one TCP port, **5173** by default. Players can create a private browser world or join the host's shared world from the start screen.
+The same Node.js server runs on both platforms. It serves the browser game and multiplayer WebSocket connection on one TCP port, **6200** by default. Players can create a private browser world or join the host's shared world from the start screen.
 
 ## Prebuilt server package (no build tools needed on the VM)
 
@@ -19,17 +19,25 @@ npm ci --omit=dev
 npm start
 ```
 
-Open `http://VM-IP:5173/` on your Mac. The VM needs a reachable network address: use bridged networking or forward TCP 5173 if it uses NAT. Allow that port through the VM's firewall for your local network if needed. No graphics card, display server, or browser is needed on the VM.
+Open `http://VM-IP:6200/` on your Mac. The VM needs a reachable network address: use bridged networking or forward TCP 6200 if it uses NAT. Allow that port through the VM's firewall for your local network if needed. No graphics card, display server, or browser is needed on the VM.
 
 The package contains the already-built frontend, including its terrain worker. Install dependencies on the VM rather than copying your Mac's `node_modules` directory. If you copy the full source instead of the prebuilt package, use `npm ci`, `npm run build`, then `npm start`.
 
 Choose a shared-world name, terrain seed, and port using environment variables:
 
 ```sh
-WORLD_NAME="Family world" WORLD_SEED="our-forest" DATA_DIR=/path/to/world-data PORT=5173 npm start
+WORLD_NAME="Family world" WORLD_SEED="our-forest" DATA_DIR=/path/to/world-data PORT=6200 npm start
 ```
 
 `HOST` defaults to `0.0.0.0`. Set it to a specific interface address if desired. `DATA_DIR` defaults to `data/` next to `server.js`; use an absolute path outside the extracted program folder to keep saves separate from software updates. `WORLD_SEED` and `WORLD_NAME` apply only when that folder has no saved world. Existing saves always restore their own seed and name. Use a different data directory for a separate world.
+
+New server worlds default to `gather` for limited inventories and simple crafting. Set `GAME_MODE=creative` to create a world with unlimited supplies. Like the seed, the mode is saved with the world and only applies to a new data directory; existing worlds keep their saved mode (older worlds are Creative). For example, after building:
+
+```sh
+GAME_MODE=gather DATA_DIR=./data/gather PORT=6201 npm start
+```
+
+Each Gather player's stacks, backpack, hotbar layout, and selection save on the server with the world. An anonymous browser token reconnects that player to their supplies; it stays in the browser's website data. Player names do not grant access to inventories. Back up the complete server save directory to retain all players' supplies. Refresh clients after updating because multiplayer now uses protocol 4. Older Gather material counters migrate into the new 36-slot inventory on load, with all owned quantities retained.
 
 **Saving is enabled.** Shared worlds are saved to `world.json` and `world.json.bak` inside the data directory. Building edits and time-control changes are flushed to disk before clients receive success. The clock is checkpointed every five seconds; clean shutdown makes a final checkpoint. Worlds restore after process or machine restarts. Active chunk caches are regenerated on demand.
 
@@ -75,12 +83,13 @@ docker compose up --build -d
 docker compose logs -f
 ```
 
-Compose exposes port 5173. Optional variables can be supplied in a `.env` file next to `compose.yaml`:
+Compose exposes port 6200. Optional variables can be supplied in a `.env` file next to `compose.yaml`:
 
 ```dotenv
-BLOCKFIELD_PORT=5173
+BLOCKFIELD_PORT=6200
 WORLD_NAME=Family world
 WORLD_SEED=our-forest
+GAME_MODE=gather
 ```
 
 Stop it with `docker compose down`. The `blockfield-data` named volume keeps saves at `/app/data` across container rebuilds and restarts. Ordinary `down` preserves the volume; `docker compose down -v` deletes it and its saved world. `restart: unless-stopped` keeps the server running. The prebuilt tarball is for native Node hosting; use the full source folder for Docker builds.
@@ -102,5 +111,7 @@ For Docker backups, stop the container, copy or back up its named volume, then r
 Players can press **P** for performance stats. `GET /api/performance` supplies process CPU (100% = one logical core), process memory, event-loop activity, server tick/checkpoint timings, player count, and loaded chunks. It does not expose world contents, filesystem paths, or environment settings. CPU covers the whole Node process, including Vite in development; use `npm start` for production comparisons. The panel polls only while open and the tab is visible. See the README for metric definitions and browser limitations.
 
 Open the root URL to choose single player or multiplayer. An invite ending in `/?join=1` joins that host directly. You can enter a different server address on the start screen; the browser navigates to that host so assets and multiplayer use the same origin. If you later place the app behind HTTPS, the browser automatically uses secure WebSockets; the reverse proxy must forward WebSocket upgrades and preserve the Host header.
+
+iPhone/iPad players use the same URL. Touch controls are chosen automatically and do not request mouse capture. Choose a world and tap Play, then use the movement stick and drag the world to look. When hosting on a Mac, phones must use the Mac's LAN address rather than `localhost`, and be on a network that can reach it.
 
 This remains a cooperative game for a trusted local network, with eight multiplayer slots and no accounts. It is not configured as a public internet service.

@@ -71,7 +71,7 @@ test('eviction retains builds and removals, regenerates untouched terrain, and b
 });
 
 test('cold history can regenerate a chunk and preserves conflict lineage after eviction', () => {
-  const world = new ChunkWorld({ seed: 'history' }), room = new GameRoom({ world });
+  const world = new ChunkWorld({ seed: 'history' }), room = new GameRoom({ world, gameMode: 'creative' });
   const a = room.join('Alice'), b = room.join('Bob');
   const command = (player, method, args = {}) => room.command(player.id, { method, ...args, ...(args.x !== undefined ? { expected: room.expected(args.x, args.y, args.z) } : {}) });
   const cell = { x: 255, y: 8, z: 255 };
@@ -127,7 +127,7 @@ test('interest rings are bounded and joining accepts only normal web server addr
   assert.equal(nearbyChunks(256, 256, 3).length, 49);
   assert.equal(nearbyChunks(256, 256, 4).length, 81);
   assert.equal(nearbyChunks(0, 0, 4).length, 25);
-  assert.equal(serverURL('192.168.1.5:5173', 'http://localhost:5173').href, 'http://192.168.1.5:5173/?join=1');
+  assert.equal(serverURL('192.168.1.5:6200', 'http://localhost:6200').href, 'http://192.168.1.5:6200/?join=1');
   assert.equal(serverURL('https://example.com', 'http://localhost').href, 'https://example.com/?join=1');
   assert.throws(() => serverURL('javascript:alert(1)', 'http://localhost'));
   assert.throws(() => serverURL('http://user:secret@example.com', 'http://localhost'));

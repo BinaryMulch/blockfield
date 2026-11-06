@@ -21,7 +21,7 @@ export function lanURLs(port, interfaces = networkInterfaces()) {
   return [...new Set((ethernet.length ? ethernet : addresses).map(entry => `http://${entry.address}:${port}/`))];
 }
 
-export async function createGameServer({ host = '0.0.0.0', port = 5173, dev = false, room = null, saveDirectory = null } = {}) {
+export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = false, room = null, saveDirectory = null } = {}) {
   const persistence = saveDirectory ? new DiskWorldStore(saveDirectory) : null;
   try {
     if (persistence) {
@@ -56,7 +56,7 @@ export async function createGameServer({ host = '0.0.0.0', port = 5173, dev = fa
       }
       if (url.pathname === '/api/session') {
         response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        response.end(JSON.stringify({ urls: lanURLs(server.address().port), maxPlayers: room.maxPlayers, name: room.name, world: room.metadata(), protocol: PROTOCOL }));
+        response.end(JSON.stringify({ urls: lanURLs(server.address().port), maxPlayers: room.maxPlayers, name: room.name, world: room.metadata(), protocol: PROTOCOL, gameMode: room.gameMode }));
         return;
       }
       if (vite) { vite.middlewares(request, response); return; }
@@ -148,10 +148,11 @@ export async function createGameServer({ host = '0.0.0.0', port = 5173, dev = fa
         peer.joining = true;
         enqueue(async () => {
           if (socket.readyState !== WebSocket.OPEN || closing) return;
-          const player = room.join(message.name);
-          if (!player) { send(socket, { type: 'unavailable', reason: 'full' }); socket.close(1008, 'World is full'); return; }
+          const player = room.join(message.name, message.playerToken);
+          if (!player) { send(socket, { type: 'unavailable', reason: room.players.size >= room.maxPlayers ? 'full' : 'profile' }); socket.close(1008, 'Cannot join this player profile'); return; }
           peer.id = player.id;
           clearTimeout(greeting);
+          if (player.inventory) await checkpoint();
           send(socket, { ...room.snapshot(player), urls: lanURLs(server.address().port), persistence: !!persistence });
           streamPeer(socket, peer, 9);
           broadcast(playerState());
@@ -164,7 +165,8 @@ export async function createGameServer({ host = '0.0.0.0', port = 5173, dev = fa
       peer.lastRequest = message.requestId;
       enqueue(async () => {
       const result = room.command(peer.id, message);
-      if (result.ok && (result.changes || result.type === 'clock')) await checkpoint();
+      if (result.ok && (result.changes || result.type === 'clock' || result.type === 'supplies')) await checkpoint();
+      if (result.ok && room.players.get(peer.id)?.inventory) send(socket, { type: 'supplies', inventory: room.players.get(peer.id).inventory.snapshot() });
       if (result.ok && result.changes) {
         const groups = new Map();
         for (const c of result.changes) {
@@ -190,7 +192,7 @@ export async function createGameServer({ host = '0.0.0.0', port = 5173, dev = fa
       } else {
         if (result.ok && result.type === 'clock') broadcast({ type: 'clock', clock: room.clockState() });
         if (result.ok && result.type === 'players') broadcast(playerState());
-        send(socket, { type: 'result', requestId: message.requestId, ok: result.ok, reason: result.reason });
+        send(socket, { type: 'result', requestId: message.requestId, ok: result.ok, reason: result.reason, moved: result.moved, swapped: result.swapped });
       }
       });
     });
@@ -258,7 +260,7 @@ export async function createGameServer({ host = '0.0.0.0', port = 5173, dev = fa
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const port = Number(process.env.PORT || 5173);
+    const port = Number(process.env.PORT || 6200);
     const game = await createGameServer({ port, host: process.env.HOST || '0.0.0.0', dev: !process.argv.includes('--production'), saveDirectory: process.env.DATA_DIR || path.join(ROOT, 'data') });
     const local = `http://localhost:${game.server.address().port}/`;
     console.log(`\nBlockfield is hosting a shared world for up to ${game.room.maxPlayers} players.\nOpen locally: ${local}`);
@@ -271,7 +273,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     });
   } catch (error) {
     let existing = null;
-    const local = `http://localhost:${Number(process.env.PORT || 5173)}/`;
+    const local = `http://localhost:${Number(process.env.PORT || 6200)}/`;
     if (['EADDRINUSE', 'EWORLDLOCKED'].includes(error.code) && process.argv.includes('--open')) {
       try {
         const response = await fetch(new URL('/api/session', local), { signal: AbortSignal.timeout(1500) });

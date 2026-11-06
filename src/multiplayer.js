@@ -1,8 +1,9 @@
 import { DAY_LENGTH } from './clock.js';
 import { CHUNK_SIZE } from './generation.js';
 import { HEIGHT } from './world.js';
+import { newWorldId, validPlayerToken } from './saves.js';
 
-const PROTOCOL = 2;
+const PROTOCOL = 4;
 export class MultiplayerClient {
   ready = false;
   selfId = null;
@@ -22,10 +23,15 @@ export class MultiplayerClient {
     this.name = name;
     this.stopped = false;
     this.blocked = false;
+    if (!this.playerToken) {
+      try { this.playerToken = localStorage.getItem('blockfield-player-token'); } catch { /* Retain an in-memory identity if storage is blocked. */ }
+      if (!validPlayerToken(this.playerToken)) this.playerToken = newWorldId();
+      try { localStorage.setItem('blockfield-player-token', this.playerToken); } catch { /* Reconnection within this visit still retains supplies. */ }
+    }
     const socket = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/multiplayer`);
     this.socket = socket;
     this.callbacks.status?.('Connecting to the shared world…');
-    socket.addEventListener('open', () => socket.send(JSON.stringify({ type: 'hello', protocol: PROTOCOL, name: this.name })));
+    socket.addEventListener('open', () => socket.send(JSON.stringify({ type: 'hello', protocol: PROTOCOL, name: this.name, playerToken: this.playerToken })));
     socket.addEventListener('message', event => {
       if (this.socket !== socket) return;
       try { this.receive(JSON.parse(event.data)); } catch { socket.close(1002, 'Please reconnect'); }
@@ -58,7 +64,8 @@ export class MultiplayerClient {
     if (message.type === 'unavailable') {
       this.blocked = true;
       this.callbacks.status?.(message.reason === 'storage' ? 'The host cannot save the world. Ask the host to check its disk before rejoining.'
-        : message.reason === 'full' ? 'This world is full (8 players). Try again when a space opens.' : 'The host updated. Reload this page to join.');
+        : message.reason === 'full' ? 'This world is full (8 players). Try again when a space opens.'
+          : message.reason === 'profile' ? 'This player inventory is open in another tab, or the host cannot create more profiles. Close other game tabs and try again.' : 'The host updated. Reload this page to join.');
       return;
     }
     if (message.type === 'welcome') {
@@ -71,6 +78,10 @@ export class MultiplayerClient {
       this.syncClock(message.clock);
       this.ready = true;
       this.retryDelay = 1000;
+      if (message.playerToken) {
+        this.playerToken = message.playerToken;
+        try { localStorage.setItem('blockfield-player-token', this.playerToken); } catch { /* Keep the identity for this connection. */ }
+      }
       this.callbacks.welcome?.(message);
       this.callbacks.players?.(message.players);
       return;
@@ -97,7 +108,8 @@ export class MultiplayerClient {
       }
       this.revision = message.revision;
       if (changes.length) this.callbacks.edit?.({ ...message, changes });
-    } else if (message.type === 'result') this.resolve(message.requestId, { ok: message.ok, reason: message.reason });
+    } else if (message.type === 'supplies') this.callbacks.supplies?.(message.inventory);
+    else if (message.type === 'result') this.resolve(message.requestId, { ok: message.ok, reason: message.reason, moved: message.moved, swapped: message.swapped });
   }
 
   disconnect() {

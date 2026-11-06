@@ -1,10 +1,16 @@
 import { generateChunk, CHUNK_SIZE } from './generation.js';
 import { HEIGHT, AIR } from './world.js';
 import { buildChunkGeometry } from './terrain.js';
+import { buildLanternField } from './lantern-field.js';
 
 self.onmessage = ({ data: job }) => {
   const started = performance.now();
   try {
+    if (job.kind === 'light') {
+      const result = buildLanternField(job);
+      self.postMessage({ id: job.id, ...result, workMs: performance.now() - started }, [result.light.buffer]);
+      return;
+    }
     if (job.kind === 'generate') {
       const blocks = generateChunk(job.seed, job.cx, job.cz, job.size);
       self.postMessage({ id: job.id, blocks, workMs: performance.now() - started }, [blocks.buffer]);

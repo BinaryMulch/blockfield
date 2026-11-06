@@ -1,9 +1,11 @@
 import { HEIGHT, isBlock } from './world.js';
 import { CHUNK_SIZE, WORLD_SIZE, GENERATOR_VERSION } from './generation.js';
+import { validInventory, GAME_MODES } from './inventory.js';
 
 export const SAVE_VERSION = 1;
 export const SAVE_FORMAT = 'blockfield-world';
 export const MAX_SAVE_BYTES = 128 * 1024 * 1024;
+export const validPlayerToken = token => typeof token === 'string' && /^[a-f0-9-]{32,80}$/i.test(token);
 export class SaveError extends Error {
   constructor(message, code = 'SAVE_INVALID') { super(message); this.name = 'SaveError'; this.code = code; }
 }
@@ -41,6 +43,19 @@ export function validateSave(save) {
     }
   }
   if (save.player && !validPose(save.player, metadata.size)) throw new SaveError('The saved player position is invalid.');
+  if (save.gameMode !== undefined && !GAME_MODES.includes(save.gameMode)) throw new SaveError('This world uses an unsupported game mode.', 'SAVE_INCOMPATIBLE');
+  if (save.inventory?.version !== undefined && ![1, 2, 3].includes(save.inventory.version)) throw new SaveError('This hotbar needs a newer game version. Its data has not been changed.', 'SAVE_INCOMPATIBLE');
+  if (save.inventory !== undefined && !validInventory(save.inventory)) throw new SaveError('The saved hotbar is invalid.');
+  if (save.gameMode === 'gather' && save.inventory && save.inventory.version === 1) throw new SaveError('The saved supplies are invalid.');
+  if (save.inventory?.mode === 'gather' && save.gameMode !== 'gather') throw new SaveError('The saved supplies do not match this world mode.');
+  if (save.profiles !== undefined) {
+    if (!Array.isArray(save.profiles) || save.profiles.length > 10000) throw new SaveError('The saved player supplies are invalid.');
+    const tokens = new Set();
+    for (const entry of save.profiles) {
+      if (!Array.isArray(entry) || entry.length !== 2 || !validPlayerToken(entry[0]) || tokens.has(entry[0]) || !validInventory(entry[1]) || entry[1].mode !== 'gather') throw new SaveError('The saved player supplies are invalid.');
+      tokens.add(entry[0]);
+    }
+  }
   if (save.saveRevision !== undefined && (!Number.isSafeInteger(save.saveRevision) || save.saveRevision < 0)) throw new SaveError('The saved world revision is invalid.');
   return save;
 }
@@ -51,14 +66,19 @@ export function validPose(pose, size = WORLD_SIZE) {
     && Math.abs(pose.pitch) <= Math.PI / 2 + 0.01 && typeof pose.flying === 'boolean';
 }
 
-export function captureSave({ world, id, name, createdAt, clock, player }) {
+export function captureSave({ world, id, name, createdAt, clock, player, inventory, gameMode = 'creative', profiles }) {
   const save = { format: SAVE_FORMAT, version: SAVE_VERSION, id, name: name.trim().slice(0, 40) || 'My world', createdAt,
     updatedAt: Date.now(), world: world.metadata(), clock: { phase: clock.phase, held: clock.held },
-    edits: [...world.edits].map(([key, cells]) => [key, [...cells]]) };
+    edits: [...world.edits].map(([key, cells]) => [key, [...cells]]), gameMode };
   if (player) {
     const pose = { x: player.x, y: player.y, z: player.z, yaw: player.yaw % (Math.PI * 2), pitch: player.pitch, flying: player.flying === true };
     if (validPose(pose, world.size)) save.player = pose;
   }
+  if (inventory) {
+    if (!validInventory(inventory)) throw new SaveError('The saved hotbar is invalid.');
+    save.inventory = structuredClone(inventory);
+  }
+  if (profiles) save.profiles = profiles.map(([token, inventory]) => [token, structuredClone(inventory)]);
   return validateSave(save);
 }
 

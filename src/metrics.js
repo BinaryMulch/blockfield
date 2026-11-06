@@ -21,9 +21,11 @@ export class FrameMetrics {
   intervals = new TimingWindow(240);
   work = new TimingWindow(240);
   reset() { this.previous = null; this.intervals.reset(); this.work.reset(); }
-  add(start, end) {
-    if (this.previous != null && start > this.previous) this.intervals.add(start - this.previous);
-    this.previous = start;
+  add(start, end, rendered = true) {
+    if (rendered) {
+      if (this.previous != null && start > this.previous) this.intervals.add(start - this.previous);
+      this.previous = start;
+    }
     this.work.add(end - start);
   }
   summary() {

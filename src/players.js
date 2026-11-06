@@ -32,6 +32,7 @@ export class OtherPlayers {
     group.name = `player-${player.id}`;
     const materials = { shirt: new THREE.MeshLambertMaterial({ color: player.color }), skin: new THREE.MeshLambertMaterial({ color: '#e0b18a' }),
       dark: new THREE.MeshLambertMaterial({ color: '#394e56' }), eyes: new THREE.MeshLambertMaterial({ color: '#263c35' }) };
+    for (const material of Object.values(materials)) this.prepareMaterial?.(material);
     const part = (parent, size, position, material) => {
       const mesh = new THREE.Mesh(this.geometry, material);
       mesh.scale.set(...size); mesh.position.set(...position);

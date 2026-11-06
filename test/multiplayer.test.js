@@ -9,7 +9,7 @@ import { World, AIR, GRASS, STONE, PLANKS, SLAB, LANTERN, DAISY, doorState } fro
 function fixture() {
   const world = new World({ generate: false });
   for (let x = 0; x < 20; x++) for (let z = 0; z < 20; z++) { world.set(x, 0, z, STONE); world.set(x, 1, z, GRASS); }
-  const room = new GameRoom({ world });
+  const room = new GameRoom({ world, gameMode: 'creative' });
   const a = room.join('Alice'), b = room.join('Bob');
   for (const [player, x] of [[a, 8.5], [b, 12.5]]) room.move(player.id, { x, y: 2, z: 11.5, yaw: 0, pitch: 0, active: false });
   const edit = (player, method, args = {}) => room.command(player.id, { method, ...args,
@@ -144,7 +144,7 @@ function connect(url, name, origin) {
       socket.on('message', listener);
     });
   };
-  socket.on('open', () => socket.send(JSON.stringify({ type: 'hello', protocol: 2, name })));
+  socket.on('open', () => socket.send(JSON.stringify({ type: 'hello', protocol: 4, name })));
   return { socket, messages, wait, send: message => socket.send(JSON.stringify(message)) };
 }
 
@@ -193,7 +193,7 @@ test('cross-origin WebSocket upgrades are refused', async t => {
 });
 
 test('separated players stream independent neighborhoods and far undo acknowledges without sending unrelated terrain', async t => {
-  const game = await createGameServer({ host: '127.0.0.1', port: 0 });
+  const game = await createGameServer({ host: '127.0.0.1', port: 0, room: new GameRoom({ gameMode: 'creative' }) });
   t.after(() => game.close());
   const port = game.server.address().port, url = `ws://127.0.0.1:${port}/multiplayer`;
   const a = connect(url, 'Explorer'), b = connect(url, 'Builder');
@@ -223,7 +223,7 @@ test('separated players stream independent neighborhoods and far undo acknowledg
 });
 
 test('LAN addresses prefer physical network adapters and omit loopback and duplicate addresses', () => {
-  const urls = lanURLs(5173, { lo0: [{ family: 'IPv4', address: '127.0.0.1', internal: true }], utun0: [{ family: 'IPv4', address: '100.1.2.3', internal: false }],
+  const urls = lanURLs(6200, { lo0: [{ family: 'IPv4', address: '127.0.0.1', internal: true }], utun0: [{ family: 'IPv4', address: '100.1.2.3', internal: false }],
     en0: [{ family: 'IPv4', address: '192.168.1.42', internal: false }], en1: [{ family: 'IPv4', address: '192.168.1.42', internal: false }] });
-  assert.deepEqual(urls, ['http://192.168.1.42:5173/']);
+  assert.deepEqual(urls, ['http://192.168.1.42:6200/']);
 });

@@ -9,7 +9,7 @@ Group=blockfield
 WorkingDirectory=/opt/blockfield
 Environment=NODE_ENV=production
 Environment=HOST=0.0.0.0
-Environment=PORT=5173
+Environment=PORT=6200
 Environment=DATA_DIR=/var/lib/blockfield
 StateDirectory=blockfield
 EnvironmentFile=-/etc/blockfield.env

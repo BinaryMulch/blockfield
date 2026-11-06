@@ -4,9 +4,10 @@ import { EditHistory } from '../src/history.js';
 import { DayClock } from '../src/clock.js';
 import { ChunkWorld } from '../src/chunks.js';
 import { CHUNK_SIZE, chunkKey, chunkIndex } from '../src/generation.js';
-import { captureSave, restoreEdits } from '../src/saves.js';
+import { captureSave, restoreEdits, validPlayerToken } from '../src/saves.js';
+import { Inventory, emptyGatherInventory, GAME_MODES } from '../src/inventory.js';
 
-export const PROTOCOL = 2;
+export const PROTOCOL = 4;
 export const MAX_PLAYERS = 8;
 const COLORS = ['#db8b58', '#669bc1', '#b17bb2', '#79a56c', '#d2b358', '#d77587', '#69aeaa', '#8f8ac5'];
 const indexOf = (x, y, z) => `${x},${y},${z}`;
@@ -51,7 +52,10 @@ export class GameRoom {
   clock = new DayClock();
   colorIndex = 0;
 
-  constructor({ world = new ChunkWorld({ seed: process.env.WORLD_SEED || 'Blockfield' }), maxPlayers = MAX_PLAYERS, name = process.env.WORLD_NAME || 'Blockfield Together' } = {}) {
+  constructor({ world = new ChunkWorld({ seed: process.env.WORLD_SEED || 'Blockfield' }), maxPlayers = MAX_PLAYERS, name = process.env.WORLD_NAME || 'Blockfield Together', gameMode = process.env.GAME_MODE || 'gather' } = {}) {
+    if (!GAME_MODES.includes(gameMode)) throw new Error('GAME_MODE must be creative or gather.');
+    this.gameMode = gameMode;
+    this.profiles = new Map();
     this.world = world;
     this.maxPlayers = maxPlayers;
     this.versions = new Map();
@@ -62,19 +66,29 @@ export class GameRoom {
     this.createdAt = Date.now();
   }
 
-  toSave() { return captureSave({ world: this.world, id: this.worldId, name: this.name, createdAt: this.createdAt, clock: this.clock }); }
+  toSave() { return captureSave({ world: this.world, id: this.worldId, name: this.name, createdAt: this.createdAt, clock: this.clock, gameMode: this.gameMode,
+    ...(this.gameMode === 'gather' ? { profiles: [...this.profiles].map(([token, inventory]) => [token, inventory.snapshot()]) } : {}) }); }
 
   static fromSave(save) {
     const world = new ChunkWorld({ seed: save.world.seed, size: save.world.size });
     restoreEdits(world, save);
-    const room = new GameRoom({ world, name: save.name });
+    const room = new GameRoom({ world, name: save.name, gameMode: save.gameMode || 'creative' });
+    room.profiles = new Map((save.profiles || []).map(([token, inventory]) => [token, new Inventory(inventory)]));
     room.worldId = save.id; room.createdAt = save.createdAt;
     room.clock.phase = save.clock.phase; room.clock.held = save.clock.held;
     return room;
   }
 
-  join(name) {
+  join(name, token) {
     if (this.players.size >= this.maxPlayers) return null;
+    if (this.gameMode === 'gather') {
+      token = validPlayerToken(token) ? token : randomUUID();
+      if ([...this.players.values()].some(player => player.token === token)) return null;
+      if (!this.profiles.has(token)) {
+        if (this.profiles.size >= 10000) return null;
+        this.profiles.set(token, new Inventory(emptyGatherInventory()));
+      }
+    }
     const id = randomUUID();
     const pose = spawnPlayer(this.world);
     const offsets = [[0, 0], [2, 0], [-2, 0], [0, 2], [0, -2], [2, 2], [-2, 2], [2, -2]];
@@ -86,6 +100,9 @@ export class GameRoom {
     }
     Object.assign(pose, { yaw: 0, pitch: -0.12, active: false });
     const player = { id, name: cleanName(name), color: COLORS[this.colorIndex++ % COLORS.length], pose, history: new SharedHistory(this) };
+    if (this.gameMode === 'gather') {
+      player.token = token; player.inventory = this.profiles.get(token); player.history.inventory = player.inventory;
+    }
     this.players.set(id, player);
     return player;
   }
@@ -100,8 +117,9 @@ export class GameRoom {
   metadata() { return this.world.metadata?.() || { size: SIZE, height: HEIGHT, chunkSize: CHUNK_SIZE, seed: 'test', generator: 0 }; }
 
   snapshot(player) {
-    return { type: 'welcome', protocol: PROTOCOL, sessionId: this.sessionId, self: this.publicPlayer(player), players: this.playerList(),
-      world: this.metadata(), worldName: this.name, revision: this.revision, clock: this.clockState(), maxPlayers: this.maxPlayers };
+    return { type: 'welcome', protocol: PROTOCOL, sessionId: this.sessionId, worldId: this.worldId, self: this.publicPlayer(player), players: this.playerList(),
+      world: this.metadata(), worldName: this.name, revision: this.revision, clock: this.clockState(), maxPlayers: this.maxPlayers, gameMode: this.gameMode,
+      ...(player.inventory ? { inventory: player.inventory.snapshot(), playerToken: player.token } : {}) };
   }
 
   chunkSnapshot(cx, cz) {
@@ -139,6 +157,11 @@ export class GameRoom {
     const player = this.players.get(id);
     if (!player) return { ok: false, reason: 'disconnected' };
     const { method } = message;
+    player.history.spendSlot = undefined;
+    if (method === 'craft' || method === 'inventory') {
+      const result = (method === 'craft' ? player.inventory?.craft(message.block) : player.inventory?.action(message)) || { ok: false, reason: 'invalid' };
+      return { ...result, type: 'supplies' };
+    }
     if (method === 'name') {
       player.name = cleanName(message.name);
       return { ok: true, type: 'players' };
@@ -157,6 +180,10 @@ export class GameRoom {
     const p = player.pose;
     const distance = Math.hypot(Math.max(x - p.x, 0, p.x - x - 1), Math.max(y - p.y - EYE_HEIGHT, 0, p.y + EYE_HEIGHT - y - 1), Math.max(z - p.z, 0, p.z - z - 1));
     if (distance > 6.75) return { ok: false, reason: 'reach' };
+    if (player.inventory && ['edit', 'placeDoor', 'placeLantern', 'placeFlower'].includes(method)) {
+      player.history.spendSlot = Number.isInteger(message.slot) ? message.slot : -1;
+      if (Number.isInteger(message.slot)) player.inventory.select(message.slot);
+    }
     if (method === 'edit') {
       const before = this.world.get(x, y, z);
       if (!isBlock(block) || block === WATER || isSolid(before) && block !== AIR && !(isSlab(before) && block === PLANKS)) return { ok: false, reason: 'invalid' };
