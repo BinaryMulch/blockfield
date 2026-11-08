@@ -12,6 +12,35 @@ import { generateChunk } from '../src/generation.js';
 import { browserSaves } from '../src/browser-saves.js';
 import { AIR, STONE, REINFORCED_PANEL } from '../src/world.js';
 
+test('private edit checkpoints pause the occupied clock together with encounter AI, then resume both', async t => {
+  const previous = globalThis.Worker;
+  globalThis.Worker = class { postMessage(job) { queueMicrotask(() => this.onmessage?.({ data: { id: job.id, blocks: generateChunk(job.seed, job.cx, job.cz, job.size) } })); } terminate() {} };
+  t.after(() => { if (previous) globalThis.Worker = previous; else delete globalThis.Worker; });
+  let hold = false, release;
+  t.mock.method(browserSaves, 'save', async (record, revision) => {
+    if (hold) await new Promise(resolve => { release = resolve; });
+    return structuredClone({ ...record, saveRevision: revision + 1 });
+  });
+  const local = new LocalSession(new ChunkWorld({ generate: false })); t.after(() => local.disconnect());
+  await local.start('Survivor', 'Slow checkpoint', 'listener-checkpoint');
+  local.clock.elapsedSeconds = 200; local.clock.phase = .65;
+  local.world.autoGenerate = true;
+  for (let x = 250; x <= 256; x++) for (let z = 252; z <= 256; z++) for (let y = 7; y < 24; y++) local.world.set(x, y, z, y === 7 ? STONE : AIR);
+  local.world.autoGenerate = false;
+  local.pose = () => ({ ...local.self, x: 254.5, y: 8.01, z: 254.5, active: true });
+  local.resources.stacks[0] = { block: REINFORCED_PANEL, count: 4 };
+  const listener = local.listener.snapshot(); hold = true;
+  const pending = local.request('edit', { x: 252, y: 8, z: 254, block: REINFORCED_PANEL, slot: 0 });
+  await Promise.resolve(); await Promise.resolve();
+  assert.ok(release); assert.equal(local.editing, true);
+  for (let i = 0; i < 3; i++) local.update(1);
+  const pausedTime = local.clock.elapsedSeconds, pausedListener = local.listener.snapshot();
+  hold = false; release(); const result = await pending;
+  assert.equal(result.ok, true); assert.equal(pausedTime, 200); assert.deepEqual(pausedListener, listener);
+  local.update(.2); assert.ok(local.clock.elapsedSeconds > 200);
+  assert.ok(local.listener.director.updates > 0);
+});
+
 async function connect(game, token) {
   const socket = new WebSocket(`ws://127.0.0.1:${game.server.address().port}/multiplayer`), messages = [], waiting = new Set();
   socket.on('message', raw => { messages.push(JSON.parse(raw)); for (const check of waiting) check(); });
@@ -95,6 +124,12 @@ test('a shared contact checkpoints before publication; teammate rescue corrects 
   assert.deepEqual(down.players.find(p => p.id === pa.id).encounter, other.players.find(p => p.id === pa.id).encounter);
   let saved = JSON.parse(await readFile(join(directory, 'world.json'), 'utf8'));
   assert.equal(saved.encounters.players.find(p => p.key === pa.token).state, 'downed');
+  const downed = down.players.find(p => p.id === pa.id).encounter;
+  a.socket.send(JSON.stringify({ type: 'pose', pose: { ...pa.pose, yaw: 1.4, pitch: -.8, encounterRevision: downed.revision, active: true } }));
+  const turned = await b.next(m => m.type === 'players' && m.players.find(p => p.id === pa.id)?.yaw === 1.4);
+  const observed = turned.players.find(p => p.id === pa.id);
+  assert.equal(observed.pitch, -.8); assert.equal(observed.active, false);
+  assert.deepEqual({ x: observed.x, y: observed.y, z: observed.z }, downed.position);
   assert.equal((await a.request('pickup')).reason, 'downed');
   for (let i = 0; i < 18 && room.encounters.downed({ key: pa.token }); i++) {
     // Advance occupied simulation time instead of waiting for three real seconds.
@@ -184,4 +219,24 @@ test('Listener pressure checkpoints visible wear and a two-block breach before p
   assert.equal(restored.world.get(253, 8, 254), AIR); assert.equal(restored.world.get(253, 9, 254), AIR);
   assert.equal(restored.infrastructure.damage.size, 0);
   assert.equal(player.inventory.stacks.some(Boolean), false);
+});
+
+test('private construction rejects material placed over the Listener without spending or saving it', async t => {
+  const previous = globalThis.Worker;
+  globalThis.Worker = class { postMessage(job) { queueMicrotask(() => this.onmessage?.({ data: { id: job.id, blocks: generateChunk(job.seed, job.cx, job.cz, job.size) } })); } terminate() {} };
+  t.after(() => { if (previous) globalThis.Worker = previous; else delete globalThis.Worker; });
+  let saves = 0;
+  t.mock.method(browserSaves, 'save', async (record, revision) => { saves++; return { ...record, saveRevision: revision + 1 }; });
+  const local = new LocalSession(new ChunkWorld({ generate: false })); t.after(() => local.disconnect());
+  await local.start('Builder', 'Construction collision', 'listener-construction');
+  assert.equal(local.upkeep.creature, local.listener);
+  local.world.autoGenerate = true;
+  for (let x = 240; x <= 244; x++) for (let z = 235; z <= 237; z++) for (let y = 7; y < 24; y++) local.world.set(x, y, z, y === 7 ? STONE : AIR);
+  local.world.autoGenerate = false;
+  local.pose = () => ({ ...local.self, x: 244.5, y: 8.01, z: 236.5 });
+  Object.assign(local.listener.entity, { state: 'investigate', x: 240.5, y: 8.01, z: 236.5 });
+  local.resources.stacks[0] = { block: REINFORCED_PANEL, count: 2 };
+  const before = saves, result = await local.request('edit', { x: 240, y: 8, z: 236, block: REINFORCED_PANEL, slot: 0 });
+  assert.equal(result.reason, 'creature'); assert.equal(saves, before); assert.equal(local.resources.count(REINFORCED_PANEL), 2);
+  assert.equal(local.world.get(240, 8, 236), AIR);
 });

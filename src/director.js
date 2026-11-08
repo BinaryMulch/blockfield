@@ -79,6 +79,9 @@ export class TensionDirector {
       p.pressure = clamp(p.pressure + dt * (engaged ? .025 : -.035));
     }
     const pressure = Math.max(0, ...players.map(p => s.players.find(r => r.key === keyOf(p))?.pressure || 0));
+    // Relief begins when the threat has left, even during daylight or player
+    // immunity. Those conditions prevent escalation, not the passage of rest.
+    if (s.phase === 'release' && !active) { this.setPhase('quiet', now, 'Threat has left: begin actual rest'); return true; }
     if (!night || grace || !players.some(p => p.vulnerable !== false)) {
       if (active && !retiring) this.setPhase('release', now, !night ? 'Daylight' : 'Starting or recovery grace');
       return true;
@@ -93,7 +96,6 @@ export class TensionDirector {
       else if (seen && distance < 14 && age >= 3 && !pressing) this.setPhase('peak', now, 'Confirmed discovery after warning period');
       else if (!active && age > 5) this.setPhase('release', now, 'Encounter ended');
     } else if (s.phase === 'peak' && (pressure >= .9 || age >= 14 || s.budget < 2 || !active)) this.setPhase('release', now, 'Peak complete');
-    else if (s.phase === 'release' && !active) this.setPhase('quiet', now, 'Threat has left: begin actual rest');
     return true;
   }
   diagnostics(now) {

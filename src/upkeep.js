@@ -160,6 +160,9 @@ export class UpkeepSystem {
         if (key(c) !== k && old !== AIR) { blocked = 'space'; break; }
         if (p.stage === 2 && poses.some(pose => overlapsBlock(pose, c.x, c.y, c.z, c.to))) { blocked = 'player'; break; }
       }
+      // Solid growth is an atomic placement too. Share the same creature
+      // occupancy guard used by construction, and reuse the saved space retry.
+      if (!blocked && p.stage === 2 && this.creature && !this.creature.guard(cells).ok) blocked = 'space';
       if (blocked) { retry(blocked); continue; }
       for (const c of cells) { const from = this.world.get(c.x, c.y, c.z); this.world.set(c.x, c.y, c.z, c.to); changes.push({ ...c, from }); }
       if (p.stage < 2) { p.stage++; p.dueAt += GROWTH_STAGE_SECONDS; delete p.checkAt; p.blocked = null; this.queue.set(p); }

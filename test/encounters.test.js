@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { World, SIZE, AIR, STONE, GLASS, REINFORCED_PANEL, SECURITY_DOOR, WARD_LANTERN, doorBlock } from '../src/world.js';
-import { EncounterSystem, RECOVERY_GRACE, recoveryPoint, validEncounters } from '../src/encounters.js';
+import { World, SIZE, AIR, STONE, GLASS, LANTERN, SLAB, UPPER_SLAB, WATER, REINFORCED_PANEL, SECURITY_DOOR, WARD_LANTERN, doorBlock } from '../src/world.js';
+import { EncounterSystem, RECOVERY_GRACE, recoveryPoint, validEncounters, rescueInReach, clearBody } from '../src/encounters.js';
 import { ListenerSystem } from '../src/listener.js';
 import { ListenerPressure, PRESSURE_INTERVAL } from '../src/listener-pressure.js';
 import { Infrastructure, strength } from '../src/infrastructure.js';
@@ -18,6 +18,20 @@ function setup() {
   const advance = (seconds, present = players) => { now += seconds; system.advance(present); };
   return { world, players, system, advance, now: () => now };
 }
+
+test('the help prompt and host share physical clearance for fixtures, distance, height, and unloaded terrain', () => {
+  const s = setup(), [actor, target] = s.players;
+  Object.assign(actor.pose, { x: 20.94, z: 21.5 }); Object.assign(target.pose, { x: 22.06, z: 21.5 });
+  s.world.set(21, 1, 21, LANTERN); s.system.knockDown(target, s.players);
+  assert.ok(clearBody(s.world, actor.pose)); assert.ok(clearBody(s.world, target.pose));
+  assert.equal(rescueInReach(s.world, actor.pose, target.pose), false); assert.equal(s.system.canRescue(actor, target), false);
+  s.world.set(21, 1, 21, AIR);
+  assert.equal(rescueInReach(s.world, actor.pose, target.pose), true); assert.equal(s.system.canRescue(actor, target), true);
+  for (const pose of [{ ...target.pose, x: 30 }, { ...target.pose, y: 4 }]) assert.equal(rescueInReach(s.world, actor.pose, pose), false);
+  s.world.chunks = new Map();
+  s.world.getChunk = (_x, _z, create) => { assert.equal(create, false); return undefined; };
+  assert.equal(rescueInReach(s.world, actor.pose, target.pose), false);
+});
 
 test('contact knocks down once, freezes movement, and leaves time for teammate help', () => {
   const s = setup(), [a] = s.players;
@@ -150,6 +164,59 @@ test('recovery searches for body clearance without modifying construction and re
   assert.ok(p); assert.deepEqual(s.world.blocks, blocks);
   for (let x = 28; x <= 36; x++) for (let z = 28; z <= 36; z++) for (let y = 1; y < 24; y++) s.world.set(x, y, z, STONE);
   assert.equal(recoveryPoint(s.world, null), null);
+});
+
+test('recovery uses actual lower and upper slab surfaces while preserving body clearance and construction', () => {
+  for (const [block, height] of [[SLAB, 1.51], [UPPER_SLAB, 2.01]]) {
+    const s = setup();
+    for (let x = 28; x <= 36; x++) for (let z = 28; z <= 36; z++) s.world.set(x, 1, z, block);
+    const before = s.world.blocks.slice(), point = recoveryPoint(s.world, null);
+    assert.ok(point); assert.equal(point.y, height); assert.ok(clearBody(s.world, point));
+    assert.deepEqual(s.world.blocks, before);
+  }
+});
+
+test('a downed player in water can automatically recover onto a clear slab-floored outpost', () => {
+  const s = setup(), player = s.players[0];
+  for (let x = 28; x <= 36; x++) for (let z = 28; z <= 36; z++) s.world.set(x, 1, z, SLAB);
+  s.world.set(20, 1, 20, WATER); s.system.recover = () => recoveryPoint(s.world, null);
+  assert.equal(clearBody(s.world, player.pose), false);
+  s.system.knockDown(player, [player]); s.advance(8.1, [player]);
+  assert.equal(s.system.downed(player), false); assert.equal(player.pose.y, 1.51);
+  assert.ok(clearBody(s.world, player.pose)); assert.ok(s.system.publicState(player).immuneUntil > s.now());
+});
+
+test('teammate help can stand a player up in water without moving them or losing recovery grace', () => {
+  const s = setup(), [player, helper] = s.players, position = { x: player.pose.x, y: player.pose.y, z: player.pose.z };
+  s.world.set(20, 1, 20, WATER); s.system.knockDown(player, s.players);
+  for (let i = 0; i < 20 && s.system.downed(player); i++) { assert.equal(s.system.rescue(helper, player).ok, true); s.advance(.2); }
+  assert.equal(s.system.downed(player), false);
+  assert.deepEqual({ x: player.pose.x, y: player.pose.y, z: player.pose.z }, position);
+  assert.equal(s.system.vulnerable(player), false); assert.ok(clearBody(s.world, player.pose, { allowWater: true }));
+});
+
+test('a blocked outpost cannot keep a player down in otherwise clear water', () => {
+  const s = setup(), player = s.players[0];
+  for (let x = 28; x <= 36; x++) for (let z = 28; z <= 36; z++) for (let y = 1; y < 24; y++) s.world.set(x, y, z, STONE);
+  s.world.set(20, 1, 20, WATER); const blocks = s.world.blocks.slice();
+  s.system.recover = () => recoveryPoint(s.world, null);
+  s.system.knockDown(player, [player]); s.advance(8.1, [player]);
+  assert.equal(s.system.downed(player), false); assert.equal(player.pose.x, 20.5); assert.equal(player.pose.y, 1.01);
+  assert.equal(s.system.vulnerable(player), false); assert.deepEqual(s.world.blocks, blocks);
+});
+
+test('failed automatic return checks retry on simulation seconds and release disconnected retry entries', () => {
+  const s = setup(), player = s.players[0]; let attempts = 0;
+  s.system.recover = () => { attempts++; return null; };
+  s.world.chunks = new Map(); s.world.getChunk = (_x, _z, create) => { assert.equal(create, false); return undefined; };
+  s.system.knockDown(player, [player]); s.advance(8.1, [player]); assert.equal(attempts, 1);
+  for (let i = 0; i < 100; i++) s.system.advance([player]);
+  assert.equal(attempts, 1); s.advance(.5, [player]); assert.equal(attempts, 1);
+  s.system.forget(player.id); s.system.advance([]); s.system.advance([player]); assert.equal(attempts, 2);
+  s.advance(1, [player]); assert.equal(attempts, 3);
+  s.world.chunks = null; s.advance(1, [player]); assert.equal(attempts, 4); assert.equal(s.system.downed(player), false);
+  for (let i = 0; i < 100; i++) s.system.advance([player]);
+  assert.equal(attempts, 4);
 });
 
 test('an obstructed return point falls back to recovery in place with grace', () => {

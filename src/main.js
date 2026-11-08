@@ -23,8 +23,7 @@ import { UpkeepView, upkeepFailure } from './upkeep-ui.js';
 import { strength } from './infrastructure.js';
 import { applyDamageMaterial } from './damage.js';
 import { ListenerRenderer } from './listener-renderer.js';
-import { RESCUE_REACH } from './encounters.js';
-import { traceBarriers } from './perception.js';
+import { DOWNED_EYE_HEIGHT, rescueInReach } from './encounters.js';
 import { MenuScreens } from './menu.js';
 import { HotbarScroll, disableUIFocus } from './input.js';
 import { DropRenderer } from './drop-renderer.js';
@@ -122,6 +121,7 @@ function start() {
   let encounter = { state: 'ready', revision: 0, immuneUntil: 0 }, encounterPlayers = [];
   let rescueHeld = false, rescueTarget = null, rescueSent = null, rescueElapsed = 0, rescuePending = false;
   const isDowned = () => encounter.state === 'downed';
+  const eyeHeight = () => isDowned() ? DOWNED_EYE_HEIGHT : EYE_HEIGHT;
   let inventoryOpen = false;
   let inventoryReturnToPlay = false;
   let expectedPointerUnlock = false;
@@ -683,7 +683,7 @@ function start() {
   }
 
   function editError(result, fallback = 'That edit could not be applied.') {
-    notify({ downed: 'You are down. Wait for help or automatic recovery.', blocked: 'That space is occupied by a player. Move clear, then try again.',
+    notify({ creature: 'The Listener is in that space. Wait until it moves clear.', downed: 'You are down. Wait for help or automatic recovery.', blocked: 'That space is occupied by a player. Move clear, then try again.',
       changed: 'Someone changed that block. This action cannot overwrite their edit.',
       storage_not_empty: 'Empty this cabinet before dismantling it.',
       landmark: 'This is a fixed salvage supply point. Use it to gather supplies.',
@@ -700,7 +700,7 @@ function start() {
     const cabinet = storageView.storage;
     if (cabinet && changes.some(c => c.x === cabinet.x && c.y === cabinet.y && c.z === cabinet.z && !isCabinet(c.to))) { closeInventory(false); notify('The cabinet was dismantled.'); }
     const position = { x: change.x + 0.5, y: change.y + 0.5, z: change.z + 0.5 };
-    const listener = { x: player.x, y: player.y + EYE_HEIGHT, z: player.z };
+    const listener = { x: player.x, y: player.y + eyeHeight(), z: player.z };
     if (changes.every(c => isDoor(c.from) && isDoor(c.to))) {
       if (playing) sounds.playAt(buildBlock(to), doorState(to).open ? 'open' : 'close', position, listener);
     }
@@ -746,11 +746,10 @@ function start() {
       : `Recovering · The Listener cannot touch you for ${Math.ceil(encounter.immuneUntil - now)}s`;
     rescueTarget = null;
     if (playing && history.ready && !isDowned()) for (const candidate of encounterPlayers) {
-      if (candidate.id === history.selfId || candidate.encounter?.state !== 'downed' || Math.abs(candidate.y - player.y) > 1.5) continue;
+      if (candidate.id === history.selfId || candidate.encounter?.state !== 'downed') continue;
       const distance = Math.hypot(candidate.x - player.x, candidate.z - player.z);
-      if (distance > RESCUE_REACH || rescueTarget && distance >= rescueTarget.distance) continue;
-      const trace = traceBarriers(world, { x: player.x, y: player.y + .8, z: player.z }, { x: candidate.x, y: candidate.y + .8, z: candidate.z });
-      if (!trace.barriers && !trace.unloaded) rescueTarget = { ...candidate, distance };
+      if (rescueTarget && distance >= rescueTarget.distance) continue;
+      if (rescueInReach(world, player, candidate)) rescueTarget = { ...candidate, distance };
     }
     rescueButton.hidden = !rescueTarget;
     if (rescueTarget) rescueButton.textContent = `Hold ${touch.enabled ? 'to help' : 'H to help'} ${rescueTarget.name} · ${Math.round((rescueTarget.encounter.rescueProgress || 0) * 100)}%`;
@@ -764,7 +763,7 @@ function start() {
   }
 
   function syncCamera() {
-    camera.position.set(player.x, player.y + (isDowned() ? .65 : EYE_HEIGHT), player.z);
+    camera.position.set(player.x, player.y + eyeHeight(), player.z);
     camera.updateMatrixWorld();
   }
   syncCamera();
@@ -784,7 +783,7 @@ function start() {
     const frameStarted = performance.now();
     const simulationElapsed = Math.max(0, (now - previous) / 1000);
     const elapsed = Math.min(simulationElapsed, 0.1);
-    sounds.setListener({ x: player.x, y: player.y + EYE_HEIGHT, z: player.z, yaw: camera.rotation.y }, world);
+    sounds.setListener({ x: player.x, y: player.y + eyeHeight(), z: player.z, yaw: camera.rotation.y }, world);
     listenerCue.hidden = !playing || now >= cueUntil;
     upkeepView.update(elapsed);
     previous = now;
@@ -914,7 +913,7 @@ function start() {
       const cues = listenerRenderer.sync(state);
       for (const event of cues) {
         if (!playing) continue;
-        const ear = { x: player.x, y: player.y + EYE_HEIGHT, z: player.z, yaw: camera.rotation.y };
+        const ear = { x: player.x, y: player.y + eyeHeight(), z: player.z, yaw: camera.rotation.y };
         const position = sounds.cuePosition(event.source, ear);
         if (position.gain < .025) continue;
         sounds.playCueAt(event.kind, event.source, ear);

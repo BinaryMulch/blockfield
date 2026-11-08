@@ -9,7 +9,8 @@
     "start": "node server.js --production",
     "preview": "npm run start",
     "package:server": "node scripts/package-server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "test:soak": "node scripts/listener-soak.js"
   },
   "engines": { "node": ">=22.12.0" },
   "dependencies": {

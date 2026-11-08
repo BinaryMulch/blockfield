@@ -20,6 +20,16 @@ function setup() {
   return { world, clock, shelter, listener, players, tick };
 }
 
+function arrive(s) {
+  s.listener.noise(s.players[0].pose, 32);
+  // Arrival requires a completed bounded proof, which may yield under load.
+  for (let i = 0; i < 12 && s.listener.entity.state === 'dormant'; i++) {
+    s.tick();
+    assert.ok(s.listener.lastNodes <= NAV_NODE_BUDGET && s.listener.lastReads <= NAV_READ_BUDGET);
+  }
+  assert.equal(s.listener.entity.state, 'investigate');
+}
+
 test('voxel traces respect full walls, thin doors, unknown chunks, and bounded work', () => {
   const { world } = setup(), a = { x: 8.5, y: 1.7, z: 8.5 }, b = { x: 8.5, y: 1.7, z: 12.5 };
   assert.equal(traceBarriers(world, a, b).barriers, 0);
@@ -40,7 +50,7 @@ test('first-night grace and quiet footsteps do not spawn a creature; loud work d
   s.clock.elapsedSeconds = 200; s.listener.noises = []; s.clock.phase = .18;
   s.listener.noise(s.players[0].pose, 32); s.tick(); assert.equal(s.listener.entity.state, 'dormant');
   s.clock.phase = .65; s.listener.noises = []; s.listener.noise(s.players[0].pose, 8); s.tick(); assert.equal(s.listener.entity.state, 'dormant');
-  s.listener.director.state.nextAt = 0; s.listener.noise(s.players[0].pose, 32); s.tick(); assert.equal(s.listener.entity.state, 'investigate');
+  s.listener.director.state.nextAt = 0; arrive(s);
   assert.ok(Math.hypot(s.listener.entity.x - s.players[0].pose.x, s.listener.entity.z - s.players[0].pose.z) >= 15);
   assert.ok(s.listener.lastReads <= NAV_READ_BUDGET); assert.equal(s.listener.entity.cueSeq, 1);
 });
@@ -48,13 +58,12 @@ test('first-night grace and quiet footsteps do not spawn a creature; loud work d
 test('spawn distance includes downed and recovering teammates even though they cannot be targeted', () => {
   const s = setup();
   s.players.push({ id: 'recovering', vulnerable: false, pose: { x: 56.5, y: 1.01, z: 32.5 } });
-  s.listener.noise(s.players[0].pose, 32); s.tick();
-  assert.equal(s.listener.entity.state, 'investigate');
+  arrive(s);
   for (const player of s.players) assert.ok(Math.hypot(s.listener.entity.x - player.pose.x, s.listener.entity.z - player.pose.z) >= 15);
 });
 
 test('the Listener investigates, pursues into contact range, and respects per-update navigation limits', () => {
-  const s = setup(); s.listener.noise(s.players[0].pose, 32); s.tick();
+  const s = setup(); arrive(s);
   let stalking = false, contacted = false;
   s.listener.contact = () => { contacted = true; return true; };
   for (let i = 0; i < 220; i++) {
@@ -107,7 +116,7 @@ test('Listener navigation supports lower and upper slabs at their actual surface
 
 test('confirmed ward protection, dawn, or expired encounters trigger retreat', () => {
   for (const reason of ['protected', 'day', 'expired']) {
-    const s = setup(); s.listener.noise(s.players[0].pose, 32); s.tick();
+    const s = setup(); arrive(s);
     if (reason === 'protected') s.shelter.state = reason;
     if (reason === 'day') s.clock.phase = .18;
     if (reason === 'expired') s.listener.entity.encounterUntil = s.clock.elapsedSeconds;
@@ -118,7 +127,7 @@ test('confirmed ward protection, dawn, or expired encounters trigger retreat', (
 });
 
 test('unverified shelter pauses entry without falsely triggering ward retreat', () => {
-  const s = setup(); s.listener.noise(s.players[0].pose, 32); s.tick();
+  const s = setup(); arrive(s);
   const before = s.listener.snapshot(); s.shelter.state = 'checking'; s.tick();
   assert.equal(s.listener.entity.state, 'investigate');
   assert.equal(s.listener.entity.x, before.x); assert.equal(s.listener.entity.z, before.z);

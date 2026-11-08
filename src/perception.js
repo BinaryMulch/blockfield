@@ -7,19 +7,19 @@ export function loadedBlock(world, x, y, z) {
   return world.get(x, y, z);
 }
 
-function intersects(a, delta, bounds) {
+function intersection(a, delta, bounds) {
   let lo = 0, hi = 1;
   for (const axis of ['x', 'y', 'z']) {
     const min = bounds[`min${axis.toUpperCase()}`], max = bounds[`max${axis.toUpperCase()}`];
-    if (Math.abs(delta[axis]) < 1e-8) { if (a[axis] < min || a[axis] > max) return false; }
+    if (Math.abs(delta[axis]) < 1e-8) { if (a[axis] < min || a[axis] > max) return null; }
     else { const u = (min - a[axis]) / delta[axis], v = (max - a[axis]) / delta[axis]; lo = Math.max(lo, Math.min(u, v)); hi = Math.min(hi, Math.max(u, v)); }
-    if (lo > hi) return false;
+    if (lo > hi) return null;
   }
-  return hi > .001 && lo < .999;
+  return hi > .001 && lo < .999 ? lo : null;
 }
 
 // Exact voxel traversal, including thin door panels and slabs. No chunk loads.
-export function traceBarriers(world, from, to, { sight = false } = {}) {
+export function traceBarriers(world, from, to, { sight = false, physical = false, first = false, read = (x, y, z) => loadedBlock(world, x, y, z) } = {}) {
   if (![from, to].every(p => p && ['x', 'y', 'z'].every(k => Number.isFinite(p[k])))) return { barriers: 3, unloaded: true, steps: 0 };
   const delta = { x: to.x - from.x, y: to.y - from.y, z: to.z - from.z };
   const cell = {}, next = {}, stride = {}, step = {};
@@ -29,9 +29,17 @@ export function traceBarriers(world, from, to, { sight = false } = {}) {
   }
   let barriers = 0;
   for (let work = 1; work <= TRACE_BUDGET; work++) {
-    const block = loadedBlock(world, cell.x, cell.y, cell.z);
+    const block = read(cell.x, cell.y, cell.z);
     if (block === undefined) return { barriers, unloaded: true, steps: work };
-    if (isSolid(block) && (sight ? block !== GLASS : block !== LEAVES) && !isLantern(block) && intersects(from, delta, blockBounds(block, cell.x, cell.y, cell.z))) barriers++;
+    // Hearing and sight intentionally transmit through some solid materials.
+    // Reaches and rescues require actual clearance through every solid shape.
+    if (isSolid(block) && (physical || (sight ? block !== GLASS : block !== LEAVES) && !isLantern(block))) {
+      const at = intersection(from, delta, blockBounds(block, cell.x, cell.y, cell.z));
+      if (at !== null) {
+        barriers++;
+        if (first) return { barriers, unloaded: false, steps: work, hit: { ...cell, block, at } };
+      }
+    }
     if (barriers >= 3) return { barriers, unloaded: false, steps: work };
     const axis = next.x <= next.y && next.x <= next.z ? 'x' : next.y <= next.z ? 'y' : 'z';
     if (next[axis] > 1 || !Number.isFinite(next[axis])) return { barriers, unloaded: false, steps: work };

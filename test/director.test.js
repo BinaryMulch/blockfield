@@ -117,7 +117,11 @@ test('shadowing cannot make contact, and a pursuit burst has a distinct warning 
 
 test('spawns stay out of every player view and provide a loaded route without changing terrain', () => {
   const s = fixture(); s.listener.director.state.quietUntil = 0;
-  const blocks = s.world.blocks.slice(); s.listener.noise(position, 32, 'a'); s.tick();
+  const blocks = s.world.blocks.slice(); s.listener.noise(position, 32, 'a');
+  for (let i = 0; i < 12 && s.listener.entity.state === 'dormant'; i++) {
+    s.tick();
+    assert.ok(s.listener.lastReads <= NAV_READ_BUDGET && s.listener.lastNodes <= NAV_NODE_BUDGET);
+  }
   assert.notEqual(s.listener.entity.state, 'dormant');
   assert.equal(s.listener.inView(s.listener.entity, s.players[0].pose), false); assert.ok(s.listener.path.length > 0);
   assert.deepEqual(s.world.blocks, blocks); assert.ok(s.listener.lastReads <= NAV_READ_BUDGET && s.listener.lastNodes <= NAV_NODE_BUDGET);
@@ -184,4 +188,20 @@ test('a visible head above a low wall prevents arrival or retirement even if the
   assert.equal(s.listener.inView({ x: 32.5, y: 1.01, z: 30.5 }, s.players[0].pose), false);
   // At a higher surface the head clears the barrier while the lower body does not.
   assert.equal(s.listener.inView({ x: 32.5, y: 2.01, z: 30.5 }, s.players[0].pose), true);
+});
+
+test('actual rest starts after withdrawal during daylight and remains elapsed at the next night', () => {
+  const d = new TensionDirector({ now: 200 }); d.setPhase('release', 200, 'Dawn');
+  d.advance(210, people, { ...context, night: false, active: false });
+  assert.equal(d.state.phase, 'quiet'); assert.ok(d.state.quietUntil >= 255 && d.state.quietUntil <= 275);
+  d.advance(300, people, { ...context, active: false });
+  assert.equal(d.state.phase, 'unease');
+});
+
+test('recovery immunity permits the rest timer to begin but cannot start a new encounter', () => {
+  const d = new TensionDirector({ now: 200 }); d.setPhase('release', 200, 'Recovery');
+  d.advance(210, [{ ...people[0], vulnerable: false }], { ...context, active: false });
+  assert.equal(d.state.phase, 'quiet');
+  d.advance(300, [{ ...people[0], vulnerable: false }], { ...context, active: false });
+  assert.equal(d.state.phase, 'quiet'); assert.equal(d.permissions(300).presence, false);
 });

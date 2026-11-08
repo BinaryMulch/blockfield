@@ -72,7 +72,9 @@ export class LocalSession extends MultiplayerClient {
     const pressure = new ListenerPressure(this.world, { shelters: this.shelters, infrastructure: this.infrastructure, upkeep: this.upkeep, canHit: () => this.listener.director.permissions(this.clock.elapsedSeconds).breach, onHit: () => this.listener.director.spend('hit', this.clock.elapsedSeconds, this.listener.mind.focusKey), onResult: result => this.encounterEvents.push(result) });
     this.listener = new ListenerSystem(this.world, { saved: saved?.listener, clock: () => this.clock, shelters: this.shelters, pressure,
       contact: () => this.encounters.knockDown(this.encounterPlayer(), [this.encounterPlayer()]) });
+    this.upkeep.creature = this.listener;
     this.history = new EditHistory(this.world);
+    this.history.creature = this.listener;
     this.history.upkeep = this.upkeep;
     this.history.infrastructure = this.infrastructure;
     this.history.inventory = this.resources;
@@ -147,10 +149,12 @@ export class LocalSession extends MultiplayerClient {
   update(seconds) {
     if (!this.ready || this.closed) return;
     const pose = this.pose?.() || this.self;
-    this.clock.running = !this.saveError && !this.encounterSaving;
-    if (this.clock.running) this.clock.advance(seconds);
-    this.saveElapsed += seconds;
-    if (this.saveElapsed >= 5 && !this.saveError && motionStamp(pose, this.clock) !== this.savedMotion) { this.saveElapsed = 0; void this.save(); }
+    // A command checkpoint already suspends AI mutations. Suspend the same
+    // occupied clock too, as the shared host does, rather than letting slow
+    // storage consume evidence, pursuit warnings, or recovery time unseen.
+    this.clock.running = !this.saveError && !this.encounterSaving && !this.editing;
+    if (this.clock.running) { this.clock.advance(seconds); this.saveElapsed += seconds; }
+    if (this.clock.running && this.saveElapsed >= 5 && motionStamp(pose, this.clock) !== this.savedMotion) { this.saveElapsed = 0; void this.save(); }
     const removed = this.world.evict([pose], 5);
     if (removed.length) this.callbacks.chunks?.(removed);
     for (const chunk of nearbyChunks(pose.x, pose.z, 4, this.world.size)) {
@@ -159,7 +163,7 @@ export class LocalSession extends MultiplayerClient {
       this.generating.add(chunk.key);
       this.generate(chunk.cx, chunk.cz).catch(error => { if (!this.closed) this.callbacks.status?.(error.message); }).finally(() => this.generating.delete(chunk.key));
     }
-    if (!this.editing && !this.saveError && this.upkeep?.hasDue()) {
+    if (this.clock.running && !this.editing && this.upkeep?.hasDue()) {
       this.editing = true;
       const changes = this.upkeep.step([pose]);
       if (changes.length) {

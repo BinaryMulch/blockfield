@@ -30,6 +30,8 @@ export class EditHistory {
           || !isSupport(get(c.x, base - 1, c.z))) return { ok: false, reason: 'invalid' };
       }
     }
+    const creatureGuard = this.creature?.guard(changes);
+    if (creatureGuard && !creatureGuard.ok) return creatureGuard;
     const guarded = this.infrastructure?.guard(changes);
     if (guarded && !guarded.ok) return guarded;
     const upkeepGuard = this.upkeep?.guard(changes);

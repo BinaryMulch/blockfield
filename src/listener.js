@@ -3,11 +3,13 @@ import { loadedBlock, traceBarriers } from './perception.js';
 import { TensionDirector, validDirector } from './director.js';
 import { ListenerMemory, validMemory } from './listener-memory.js';
 import { chooseListenerAction } from './listener-decisions.js';
+import { DOWNED_EYE_HEIGHT } from './encounters.js';
+import { ListenerRouteSearch, NAV_NODE_BUDGET, NAV_READ_BUDGET, MAX_SPAWN_ROUTE_UPDATES, MAX_MOVE_SEGMENTS } from './listener-navigation.js';
+export { NAV_NODE_BUDGET, NAV_READ_BUDGET } from './listener-navigation.js';
 
 export const LISTENER_INTERVAL = .2;
+export const MAX_LISTENER_STEP = 1;
 export const MAX_NOISE_EVENTS = 32;
-export const NAV_NODE_BUDGET = 96;
-export const NAV_READ_BUDGET = 4096;
 export const LISTENER_GRACE = 90;
 export const LISTENER_STANDING_HEIGHT = 2.35;
 export const LISTENER_PASSAGE_HEIGHT = 1.85;
@@ -50,8 +52,8 @@ export class ListenerSystem {
     this.entity = saved ? structuredClone(entity) : { version: 1, state: 'dormant', x: center, y: 1, z: center, yaw: 0, target: null, home: null,
       interestUntil: 0, encounterUntil: 0, stateUntil: 0, cooldownUntil: 0, lastCueAt: 0, cueSeq: 0, stepSeq: 0, cueKind: 'alert' };
     this.entity.crouched ??= false; this.activity = 'Waiting'; this.lastSeenAt = this.entity.state === 'stalk' ? clock().elapsedSeconds : -Infinity;
-    this.noises = []; this.motion = new Map(); this.actionTimes = new Map(); this.elapsed = 0; this.path = []; this.pathAt = 0; this.stride = 0;
-    this.lastNodes = 0; this.lastReads = 0; this.lastSenseSteps = 0; this.lastCandidates = 0; this.decision = 'Waiting for evidence'; this.scores = []; this.revision = world.serial;
+    this.noises = []; this.motion = new Map(); this.actionTimes = new Map(); this.elapsed = 0; this.pendingSeconds = 0; this.stepSeconds = LISTENER_INTERVAL; this.path = []; this.pathAt = 0; this.pathGoal = null; this.verifiedApproach = false; this.routeProbe = null; this.stride = 0; this.fallSpeed = 0;
+    this.lastNodes = 0; this.lastReads = 0; this.lastSenseSteps = 0; this.lastCandidates = 0; this.decision = 'Waiting for evidence'; this.scores = []; this.revision = world.serial; this.spawnProbe = null; this.spawnCursor = 0;
   }
   snapshot() { return { ...structuredClone(this.entity), director: this.director.snapshot(), memory: this.memory.snapshot(), mind: structuredClone(this.mind) }; }
   publicState() {
@@ -67,17 +69,26 @@ export class ListenerSystem {
       failedRoutes: this.memory.state.failed.length, scores: this.scores, director: this.director.diagnostics(now) };
   }
   trace(a, b, options) { const result = traceBarriers(this.world, a, b, options); this.lastSenseSteps += result.steps; return result; }
-  inView(p, observer) {
-    const eye = { x: observer.x, y: observer.y + EYE_HEIGHT, z: observer.z }, dx = p.x - eye.x, dy = p.y + 1.3 - eye.y, dz = p.z - eye.z;
-    const length = Math.hypot(dx, dy, dz), yaw = observer.yaw || 0, pitch = observer.pitch || 0;
-    const dot = (-Math.sin(yaw) * Math.cos(pitch) * dx + Math.sin(pitch) * dy - Math.cos(yaw) * Math.cos(pitch) * dz) / Math.max(.001, length);
-    if (length > 56 || dot < Math.cos(70 * Math.PI / 180)) return false;
-    for (const height of [p.crouched ? 1.65 : 2.2, 1.2, .25]) {
-      const trace = this.trace(eye, { x: p.x, y: p.y + height, z: p.z }, { sight: true });
+  inView(p, observer, eyeHeight = EYE_HEIGHT) {
+    const eye = { x: observer.x, y: observer.y + eyeHeight, z: observer.z }, yaw = observer.yaw || 0, pitch = observer.pitch || 0;
+    const forward = { x: -Math.sin(yaw) * Math.cos(pitch), y: Math.sin(pitch), z: -Math.cos(yaw) * Math.cos(pitch) };
+    const right = { x: Math.cos(yaw) * .4, z: -Math.sin(yaw) * .4 };
+    const samples = [{ x: p.x, y: p.y + (p.crouched ? 1.65 : 2.2), z: p.z },
+      { x: p.x, y: p.y + 1.2, z: p.z }, { x: p.x, y: p.y + .25, z: p.z },
+      { x: p.x - right.x, y: p.y + 1.2, z: p.z - right.z }, { x: p.x + right.x, y: p.y + 1.2, z: p.z + right.z }];
+    for (const sample of samples) {
+      // Each sample needs its own cone check: a center outside the cone does
+      // not mean the extremities are offscreen. Side samples conservatively
+      // cover the raincoat/arms peeking past a narrow post or wall edge.
+      const dx = sample.x - eye.x, dy = sample.y - eye.y, dz = sample.z - eye.z;
+      const length = Math.hypot(dx, dy, dz), dot = (forward.x * dx + forward.y * dy + forward.z * dz) / Math.max(.001, length);
+      if (length > 56 || length > .001 && dot < Math.cos(70 * Math.PI / 180)) continue;
+      const trace = this.trace(eye, sample, { sight: true });
       if (trace.unloaded || !trace.barriers) return true;
     }
     return false;
   }
+  inPlayerView(p, player) { return this.inView(p, player.pose, player.downed ? DOWNED_EYE_HEIGHT : EYE_HEIGHT); }
 
   forget(id) { this.motion.delete(id); this.actionTimes.delete(id); }
   noise(position, radius, source = 'world') {
@@ -120,7 +131,7 @@ export class ListenerSystem {
   cue(kind, now) { const e = this.entity; e.cueKind = kind; e.cueSeq++; e.lastCueAt = now; }
   setState(state, now) {
     const e = this.entity; if (state === e.state) return;
-    e.state = state; this.path = []; this.pathAt = 0; this.strikeTarget = null; this.pressure?.reset();
+    e.state = state; this.path = []; this.pathAt = 0; this.pathGoal = null; this.verifiedApproach = false; this.routeProbe = null; this.strikeTarget = null; this.pressure?.reset();
     this.mind.actionAt = now; this.mind.goal = null; this.mind.goalAt = 0;
     if (state !== 'stalk') { this.mind.burstUntil = 0; this.mind.warningUntil = 0; }
     if (state === 'retreat') { this.activity = 'Retreating'; e.stateUntil = now + 8; this.cue('retreat', now); }
@@ -128,9 +139,29 @@ export class ListenerSystem {
     if (state === 'search') this.cue('search', now);
     if (state === 'pressure') this.cue('pressure', now);
     if (state === 'retreat') this.director.setPhase('release', now, this.decision || 'Creature withdrawing');
-    if (state === 'dormant') { this.mind.spawnOffset = null; this.activity = 'Encounter cooldown'; e.cooldownUntil = now + 45; e.target = null; }
+    if (state === 'dormant') { this.fallSpeed = 0; this.spawnProbe = null; this.spawnCursor = 0; this.mind.spawnOffset = null; this.activity = 'Encounter cooldown'; e.cooldownUntil = now + 45; e.target = null; }
   }
-  read(x, y, z) { if (this.lastReads >= NAV_READ_BUDGET) return undefined; this.lastReads++; return loadedBlock(this.world, x, y, z); }
+  guard(changes) {
+    const e = this.entity;
+    if (e.state === 'dormant') return { ok: true };
+    const height = e.crouched ? LISTENER_PASSAGE_HEIGHT : LISTENER_STANDING_HEIGHT;
+    for (const c of changes) {
+      if (c.from === c.to || !isSolid(c.to)) continue;
+      // Closed doors occupy a whole navigation cell. Closing either half over
+      // an actor in its frame would otherwise strand it despite a valid route.
+      const b = doorState(c.to)?.open === false
+        ? { minX: c.x, maxX: c.x + 1, minY: c.y, maxY: c.y + 1, minZ: c.z, maxZ: c.z + 1 }
+        : blockBounds(c.to, c.x, c.y, c.z);
+      if (e.x + .26 > b.minX && e.x - .26 < b.maxX && e.z + .26 > b.minZ && e.z - .26 < b.maxZ && e.y + height > b.minY && e.y < b.maxY)
+        return { ok: false, reason: 'creature' };
+    }
+    return { ok: true };
+  }
+  read(x, y, z) {
+    if (this.lastReads >= NAV_READ_BUDGET) return undefined;
+    this.lastReads++; this.activeRouteSearch?.track(x, y, z, this.world);
+    return loadedBlock(this.world, x, y, z);
+  }
   fits(x, y, z, height = LISTENER_PASSAGE_HEIGHT) {
     for (let bx = Math.floor(x - .26); bx <= Math.floor(x + .26); bx++) for (let bz = Math.floor(z - .26); bz <= Math.floor(z + .26); bz++) for (let by = Math.floor(y); by <= Math.floor(y + height); by++) {
       const block = this.read(bx, by, bz); if (block === undefined || doorState(block)?.open === false) return false;
@@ -150,79 +181,177 @@ export class ListenerSystem {
     }
     return null;
   }
+  settle() {
+    const e = this.entity, speed = Math.min(8, this.fallSpeed + 20 * this.stepSeconds);
+    const bottom = Math.max(.01, e.y - speed * this.stepSeconds);
+    let surface = -Infinity;
+    // Sweep only the footprint and at most nine vertical cells per column.
+    // Even at terminal speed this catches thin slabs, without scanning a shaft
+    // or generating terrain. Unknown support waits for normal chunk streaming.
+    for (let x = Math.floor(e.x - .26); x <= Math.floor(e.x + .26); x++) for (let z = Math.floor(e.z - .26); z <= Math.floor(e.z + .26); z++) {
+      for (let y = Math.floor(e.y - .01); y >= Math.floor(bottom - .01); y--) {
+        const block = this.read(x, y, z);
+        if (block === undefined) { this.fallSpeed = 0; this.activity = 'Waiting for loaded ground'; return false; }
+        if (!isSolid(block)) continue;
+        const b = blockBounds(block, x, y, z);
+        if (e.x + .26 > b.minX && e.x - .26 < b.maxX && e.z + .26 > b.minZ && e.z - .26 < b.maxZ
+          && b.maxY <= e.y + .001 && b.maxY + .01 >= bottom) surface = Math.max(surface, b.maxY);
+      }
+    }
+    const grounded = Number.isFinite(surface), y = grounded ? surface + .01 : bottom;
+    if (!this.fits(e.x, y, e.z)) { this.fallSpeed = 0; this.activity = 'Checking ground clearance'; return false; }
+    this.fallSpeed = grounded ? 0 : speed;
+    if (Math.abs(e.y - y) > 1e-8) {
+      e.y = y; this.path = []; this.pathAt = 0; this.verifiedApproach = false; this.routeProbe = null; this.mind.goal = null; this.mind.goalAt = 0;
+      e.crouched = !this.fits(e.x, y, e.z, LISTENER_STANDING_HEIGHT);
+    }
+    if (!grounded) { this.strikeTarget = null; this.pressure?.reset(); this.activity = 'Falling'; }
+    return grounded;
+  }
   shelterState(p) { return this.shelters?.status(p)?.state; }
   protection(p) { return this.shelterState(p) === 'protected'; }
   entryBlocked(p) { return ['protected', 'checking'].includes(this.shelterState(p)); }
+  finishSpawn(probe, players, now) {
+    const { point: p, noise, ambient, search } = probe;
+    // A proof can take multiple slices. Recheck the current world and observers
+    // before materializing, including players who moved/joined while it ran.
+    if (!this.fits(p.x, p.y, p.z) || this.entryBlocked(p)
+      || players.some(player => distance(p, player.pose) < 15 || this.inPlayerView(p, player))) return false;
+    // Fuel/protection can change without a terrain revision while a proof is
+    // pending. A barrier goal must still be eligible when the actor arrives.
+    if (search.barrier && !this.pressure?.candidate(search.best, noise, { read: (x, y, z) => this.read(x, y, z) })) return false;
+    const trace = this.trace({ x: p.x, y: p.y + 1.4, z: p.z }, { x: noise.x, y: noise.y + .6, z: noise.z });
+    if (!ambient && (trace.unloaded || distance(p, noise) > noise.radius * .6 ** trace.barriers)) return false;
+    Object.assign(this.entity, p, { state: ambient ? 'listen' : 'investigate', target: ambient ? null : copyPoint(noise), home: copyPoint(p), interestUntil: now + 22, encounterUntil: now + 75 });
+    this.entity.crouched = !this.fits(p.x, p.y, p.z, LISTENER_STANDING_HEIGHT);
+    if (!ambient) this.memory.remember('sound', noise, noise.at, .65, keyOf(players.find(player => player.id === noise.source) || {}) || null);
+    // Keep the complete approach we just proved. Replacing it after one second
+    // with a shorter partial search can strand the actor against the wrong wall.
+    this.mind.focusKey = null; this.path = search.path(this); this.pathAt = this.entity.encounterUntil; this.pathGoal = copyPoint(noise); this.verifiedApproach = true; this.routeProbe = null; this.mind.actionAt = now;
+    this.mind.progressAt = now; this.mind.progress = copyPoint(p); this.mind.failures = 0;
+    this.decision = ambient ? 'Safe distant presence; confirmed route' : search.barrier ? 'Heard indoor work; verified approach to an unprotected barrier' : 'Fresh sound and a confirmed offscreen route';
+    this.activity = ambient ? 'Listening in the distance' : 'Following noise'; this.cue('alert', now); return true;
+  }
+  continueSpawn(players, now) {
+    const probe = this.spawnProbe;
+    if (!probe) return false;
+    probe.updates++;
+    const status = probe.search.step(this);
+    if (status === 'pending' && probe.updates < MAX_SPAWN_ROUTE_UPDATES) { this.activity = 'Verifying a complete spawn route'; return false; }
+    this.spawnProbe = null;
+    return status === 'reached' && this.finishSpawn(probe, players, now);
+  }
   spawn(noise, players, now, ambient = false) {
     if (noise.radius < 18) return false;
-    if (this.mind.spawnOffset === null || now - this.mind.spawnOffsetAt > 8) { this.mind.spawnOffset = this.director.random(); this.mind.spawnOffsetAt = now; }
+    if (this.spawnProbe && (!this.spawnProbe.search.valid(this.world) || this.spawnProbe.ambient !== ambient || now - this.spawnProbe.at > 3)) this.spawnProbe = null;
+    if (this.spawnProbe && players.some(player => distance(this.spawnProbe.point, player.pose) < 15 || this.inPlayerView(this.spawnProbe.point, player))) {
+      // Stop spending route work as soon as an observer invalidates the
+      // candidate, even if this update could not finish its remaining proof.
+      this.spawnProbe = null; return false;
+    }
+    if (this.spawnProbe) return this.continueSpawn(players, now);
+    if (this.mind.spawnOffset === null || now - this.mind.spawnOffsetAt > 8) {
+      this.mind.spawnOffset = this.director.random(); this.mind.spawnOffsetAt = now; this.spawnCursor = 0;
+    }
     const offset = this.mind.spawnOffset;
-    for (let i = 0; i < 12 && this.lastReads < NAV_READ_BUDGET && this.lastNodes < NAV_NODE_BUDGET; i++) {
-      this.lastCandidates++;
-      const angle = (i / 12 + offset) * Math.PI * 2, radius = Math.min(24, noise.radius - 2) + i % 3;
+    for (let attempt = 0; attempt < 12 && this.lastReads < NAV_READ_BUDGET && this.lastNodes < NAV_NODE_BUDGET; attempt++) {
+      const i = this.spawnCursor++ % 12; this.lastCandidates++;
+      const angle = (i / 12 + offset) * Math.PI * 2, outer = Math.min(24, noise.radius - 2);
+      // Include nearer safe candidates so a wall's hearing attenuation does
+      // not rule out every arrival. All observers still enforce 15 blocks.
+      const radius = ambient ? outer + i % 3 : i % 3 === 0 ? outer : Math.max(16, outer * (i % 3 === 1 ? .75 : 2 / 3));
       const x = Math.floor(noise.x + Math.cos(angle) * radius) + .5, z = Math.floor(noise.z + Math.sin(angle) * radius) + .5;
       if (players.some(p => distance(p.pose, { x, z }) < 15)) continue;
       for (let y = HEIGHT - 3; y >= 1; y--) {
-        const p = this.ground(x, z, y); if (!p || this.entryBlocked(p) || players.some(player => this.inView(p, player.pose))) continue;
+        const p = this.ground(x, z, y); if (!p || this.entryBlocked(p) || players.some(player => this.inPlayerView(p, player))) continue;
         const trace = this.trace({ x: p.x, y: p.y + 1.4, z: p.z }, { x: noise.x, y: noise.y + .6, z: noise.z });
         if (!ambient && (trace.unloaded || distance(p, noise) > noise.radius * .6 ** trace.barriers)) continue;
-        const goal = { ...copyPoint(noise), y: Math.abs(noise.y - p.y) < 2 ? noise.y : p.y };
-        const path = this.route(goal, p);
-        if (!path.length && goalDistance(p, goal) > 2) continue;
-        Object.assign(this.entity, p, { state: ambient ? 'listen' : 'investigate', target: ambient ? null : copyPoint(noise), home: copyPoint(p), interestUntil: now + 22, encounterUntil: now + 75 });
-        this.entity.crouched = !this.fits(p.x, p.y, p.z, LISTENER_STANDING_HEIGHT);
-        if (!ambient) this.memory.remember('sound', noise, noise.at, .65, keyOf(players.find(p => p.id === noise.source) || {}) || null);
-        this.mind.focusKey = null; this.path = path; this.pathAt = now + 1; this.mind.actionAt = now; this.mind.progressAt = now; this.mind.progress = copyPoint(p); this.mind.failures = 0;
-        this.decision = ambient ? 'Safe distant presence; no invented target' : 'Fresh sound and a safe offscreen route';
-        this.activity = ambient ? 'Listening in the distance' : 'Following noise'; this.cue('alert', now); return true;
+        const goal = copyPoint(noise);
+        this.spawnProbe = { point: p, noise: { ...noise }, ambient, at: now, updates: 0, search: new ListenerRouteSearch(p, goal, { guarded: true, approachBarriers: !ambient }) };
+        if (this.continueSpawn(players, now)) return true;
+        if (this.spawnProbe) return false;
       }
     }
     return false;
   }
-
-  route(target, e = this.entity) {
-    const start = { x: Math.floor(e.x) + .5, y: e.y, z: Math.floor(e.z) + .5, parent: null, cost: 0 };
-    const open = [start], seen = new Map([[`${start.x},${start.y},${start.z}`, 0]]);
-    let best = start;
-    const deadline = performance.now() + 2;
-    while (open.length && this.lastNodes < NAV_NODE_BUDGET && this.lastReads < NAV_READ_BUDGET && performance.now() <= deadline) {
-      let next = 0;
-      for (let i = 1; i < open.length; i++) if (open[i].cost + goalDistance(open[i], target) < open[next].cost + goalDistance(open[next], target)) next = i;
-      const node = open.splice(next, 1)[0]; this.lastNodes++;
-      if (goalDistance(node, target) < goalDistance(best, target)) best = node;
-      if (distance(node, target) < .8 && Math.abs(node.y - target.y) < 1.25) { best = node; break; }
-      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-        const p = this.ground(node.x + dx, node.z + dz, node.y); if (!p || distance(p, start) > 28) continue;
-        const id = `${p.x},${p.y},${p.z}`, cost = node.cost + 1;
-        if ((seen.get(id) ?? Infinity) <= cost) continue;
-        seen.set(id, cost); open.push({ ...p, cost, parent: node });
-      }
-    }
-    const path = []; while (best.parent) { path.unshift(copyPoint(best)); best = best.parent; }
-    // Searches begin at a cell center, while the creature may still be between
-    // waypoints. Align the perpendicular axis before turning so replans cannot
-    // repeatedly cut the same solid corner. Preserve forward progress on straights.
-    const next = path[0];
-    if (next) {
-      const align = next.x !== start.x ? { x: e.x, y: e.y, z: start.z } : { x: start.x, y: e.y, z: e.z };
-      if (distance(e, align) > .02 && this.fits(align.x, align.y, align.z)) path.unshift(align);
-    }
-    return path;
+  pointOnRoute(from, next, x, z) {
+    const p = { x, y: Math.max(from.y, next.y), z };
+    if (next.y < p.y && this.fits(x, next.y, z)) p.y = next.y;
+    else if (!this.fits(x, p.y, z)) return null;
+    return p;
+  }
+  route(target, e = this.entity, { requireComplete = false } = {}) {
+    const search = new ListenerRouteSearch(e, target);
+    search.step(this);
+    return requireComplete && search.status !== 'reached' ? [] : search.path(this);
+  }
+  beginRoute(target, now) {
+    const state = this.entity.state;
+    return { state, at: now, updates: 0, search: new ListenerRouteSearch(this.entity, target,
+      { guarded: state !== 'retreat', approachBarriers: state === 'investigate' }) };
+  }
+  resumeRoute(target, now) {
+    let probe = this.routeProbe;
+    if (probe && (probe.state !== this.entity.state || !probe.search.valid(this.world) || goalDistance(target, probe.search.target) > 1.3 || now - probe.at > 3)) probe = null;
+    if (!probe) probe = this.beginRoute(target, now);
+    this.routeProbe = probe; probe.updates++;
+    const status = probe.search.step(this);
+    if (status === 'pending' && probe.updates < MAX_SPAWN_ROUTE_UPDATES) { this.activity = 'Verifying an approach route'; return false; }
+    this.path = probe.search.path(this); this.pathGoal = copyPoint(target);
+    this.verifiedApproach = status === 'reached';
+    // A watched withdrawal can outlive the encounter. Its complete detour must
+    // remain usable while repeated escape scoring returns the same goal.
+    const completeUntil = this.entity.state === 'retreat' ? now + 75 : this.entity.encounterUntil;
+    this.pathAt = this.verifiedApproach ? completeUntil : now + 1;
+    this.routeProbe = null; return true;
   }
   move(target, speed, now) {
     const e = this.entity;
-    if (now >= this.pathAt) { this.path = this.route(target); this.pathAt = now + 1; }
-    const next = this.path[0]; if (!next) { this.activity = 'No clear route'; return; }
-    const length = distance(e, next), amount = Math.min(length, speed * LISTENER_INTERVAL);
-    const candidate = { x: e.x + (next.x - e.x) / Math.max(.001, length) * amount, y: Math.max(e.y, next.y), z: e.z + (next.z - e.z) / Math.max(.001, length) * amount };
-    if (next.y < candidate.y && this.fits(candidate.x, next.y, candidate.z)) candidate.y = next.y;
-    if (!this.fits(candidate.x, candidate.y, candidate.z)) { this.activity = 'Path obstructed'; this.path = []; this.pathAt = now + .6; return; }
-    if (e.state !== 'retreat' && this.entryBlocked(candidate)) { this.activity = 'Checking shelter'; this.path = []; this.pathAt = now + .6; return; }
-    e.crouched = !this.fits(candidate.x, candidate.y, candidate.z, LISTENER_STANDING_HEIGHT) || !this.fits(next.x, next.y, next.z, LISTENER_STANDING_HEIGHT);
-    this.activity = e.state === 'retreat' ? 'Moving away' : 'Following route';
-    e.yaw = Math.atan2(e.x - candidate.x, e.z - candidate.z); Object.assign(e, candidate);
-    this.stride += amount; if (this.stride >= .9) { this.stride %= .9; e.stepSeq++; }
-    if (length <= amount + .02) this.path.shift();
+    if (!Number.isFinite(speed) || speed <= 0) return;
+    if (this.pathGoal && goalDistance(target, this.pathGoal) > 1.3) { this.pathAt = 0; this.verifiedApproach = false; }
+    if (now >= this.pathAt) {
+      if (e.state === 'investigate' || this.routeProbe) { if (!this.resumeRoute(target, now)) return; }
+      else { this.routeProbe = null; this.verifiedApproach = false; this.path = this.route(target); this.pathAt = now + 1; this.pathGoal = copyPoint(target); }
+    }
+    if (!this.path.length) {
+      // A short partial search can reach a local dead end even when a longer
+      // walking detour exists. Retain a bounded search instead of repeating
+      // that same empty prefix every update. Only investigation can use a
+      // pressure barrier as its goal; pursuit/withdrawal require walkable paths.
+      if (e.state !== 'investigate' && !this.routeProbe) this.routeProbe = this.beginRoute(target, now);
+      this.pathAt = 0; this.activity = 'No clear route'; return;
+    }
+    let remaining = speed * this.stepSeconds;
+    for (let segment = 0; segment < MAX_MOVE_SEGMENTS && this.path.length && remaining > 1e-8; segment++) {
+      const next = this.path[0], length = distance(e, next);
+      if (length < 1e-8 && Math.abs(e.y - next.y) < .02) { this.path.shift(); continue; }
+      const amount = Math.min(length, remaining), start = copyPoint(e), steps = Math.max(1, Math.ceil(amount / .2));
+      // Check the sweep as well as the endpoint, including thin swung panels.
+      // Each leg gets its own checks; distance carries through corners, never
+      // diagonally across them. World/read budgets remain shared with routing.
+      for (let step = 1; step <= steps; step++) {
+        const progress = length > 1e-8 ? amount / length * step / steps : 1;
+        const candidate = this.pointOnRoute(e, next, start.x + (next.x - start.x) * progress, start.z + (next.z - start.z) * progress);
+        const shelterBlocked = candidate && e.state !== 'retreat' && this.entryBlocked(candidate);
+        if (!candidate || shelterBlocked) {
+          // Earlier sweep samples may already have entered a low ceiling.
+          // Publish posture for the last accepted position even when the leg
+          // stops before its waypoint (including exhausted read budgets).
+          e.crouched = !this.fits(e.x, e.y, e.z, LISTENER_STANDING_HEIGHT);
+          this.activity = shelterBlocked ? 'Checking shelter' : 'Path obstructed';
+          this.path = []; this.pathAt = now + .6; this.verifiedApproach = false; return;
+        }
+        const travelled = distance(e, candidate);
+        e.yaw = Math.atan2(e.x - candidate.x, e.z - candidate.z); Object.assign(e, candidate);
+        this.stride += travelled;
+        const footfalls = Math.floor(this.stride / .9); if (footfalls) { this.stride %= .9; e.stepSeq += footfalls; }
+      }
+      remaining -= amount;
+      this.activity = e.state === 'retreat' ? 'Moving away' : 'Following route';
+      e.crouched = !this.fits(e.x, e.y, e.z, LISTENER_STANDING_HEIGHT) || !this.fits(next.x, next.y, next.z, LISTENER_STANDING_HEIGHT);
+      if (length <= amount + 1e-8) this.path.shift();
+      else break;
+    }
   }
   perceive(players, now) {
     const e = this.entity; let seen = null, score = -Infinity, heard = null, loudness = 0;
@@ -242,7 +371,7 @@ export class ListenerSystem {
     }
     if (seen) {
       this.lastSeenAt = now; this.memory.remember('sight', seen.pose, now, 1, keyOf(seen));
-      if (this.mind.focusKey !== keyOf(seen)) { this.mind.focusKey = keyOf(seen); this.director.focus(keyOf(seen), now); }
+      this.mind.focusKey = keyOf(seen); this.director.focus(keyOf(seen), now);
     }
     return seen;
   }
@@ -279,7 +408,7 @@ export class ListenerSystem {
       if (!p || this.memory.blocked(p, now)) continue;
       const closest = Math.min(...players.map(player => distance(p, player.pose)));
       if (closest < Math.min(5, distance(e, nearest.pose))) continue;
-      const hidden = !players.some(player => this.inView(p, player.pose));
+      const hidden = !players.some(player => this.inPlayerView(p, player));
       candidates.push({ point: p, score: (hidden ? 80 : 0) + closest - distance(e, p) * .2 });
     }
     candidates.sort((a, b) => b.score - a.score);
@@ -298,25 +427,54 @@ export class ListenerSystem {
     ];
     this.scores = candidates.filter(c => c.allowed).map(c => ({ action: c.action, score: Math.round(c.score * 100) }));
     const choice = chooseListenerAction(candidates, e.state, now - this.mind.actionAt, () => this.director.random());
-    if (fact?.key && fact.key !== this.mind.focusKey) { this.mind.focusKey = fact.key; this.director.focus(fact.key, now); }
+    if (fact?.key) { this.mind.focusKey = fact.key; this.director.focus(fact.key, now); }
     this.decision = choice.reason; this.setState(choice.action, now); this.mind.decideAt = now + 1;
   }
   advance(seconds, players) {
     if (!Number.isFinite(seconds) || seconds <= 0) return false;
     const present = players.filter(p => point(p.pose, this.world.size || SIZE)).slice(0, 8), eligible = present.filter(p => p.vulnerable !== false);
-    this.elapsed += seconds; if (this.elapsed < LISTENER_INTERVAL) return false; this.elapsed %= LISTENER_INTERVAL;
+    this.elapsed += seconds; this.pendingSeconds += seconds;
+    if (this.elapsed < LISTENER_INTERVAL) return false;
+    this.elapsed %= LISTENER_INTERVAL;
+    // Keep the existing bounded update cadence, but move for the actual time
+    // since the previous executed update. The cadence remainder has already
+    // contributed to that move and must not be counted again next time.
+    this.stepSeconds = Math.min(MAX_LISTENER_STEP, this.pendingSeconds); this.pendingSeconds = 0;
     const { elapsedSeconds: now, phase } = this.clock(), e = this.entity, m = this.mind;
     this.lastNodes = this.lastReads = this.lastSenseSteps = this.lastCandidates = 0;
-    if (this.revision !== this.world.serial) { this.revision = this.world.serial; this.pathAt = 0; this.memory.state.failed = []; }
+    if (this.revision !== this.world.serial) {
+      this.revision = this.world.serial;
+      // A completed approach is swept again as it is walked. Distant edits or
+      // streaming must not throw away a useful detour; a real obstruction,
+      // ward boundary, or target change still cancels it immediately.
+      if (!this.verifiedApproach) this.pathAt = 0;
+      this.memory.state.failed = [];
+    }
     this.observe(eligible, now); this.noises = this.noises.filter(n => now - n.at <= 10); this.memory.advance(now);
     const night = phase >= .52 && phase < .94, grace = now < LISTENER_GRACE;
     const active = e.state !== 'dormant', retiring = e.state === 'retreat';
-    const seen = active && !retiring ? this.perceive(eligible, now) : null;
-    const fact = this.memory.best(now), freshNoise = this.noises.filter(n => n.radius >= 18).sort((a, b) => b.radius - a.radius || b.at - a.at)[0];
-    this.director.advance(now, present.map(p => ({ ...p, distance: distance(e, p.pose), exposed: !this.entryBlocked(p.pose) })),
+    const grounded = !active || this.settle(), groundActivity = this.activity;
+    if (!grounded) { this.strikeTarget = null; this.pressure?.reset(); }
+    const seen = active && !retiring && grounded ? this.perceive(eligible, now) : null;
+    const fact = this.memory.best(now), team = present.map(p => ({ ...p, distance: distance(e, p.pose), exposed: !this.entryBlocked(p.pose) }));
+    const sources = new Map(team.map(p => [p.id, p]));
+    // A protected/recovering teammate's louder work cannot monopolize arrival
+    // attempts while an exposed teammate is active elsewhere. Existing actors
+    // still hear every physical noise through perceive(); this only chooses a
+    // viable anchor for a new encounter, using authoritative shelter state.
+    const canAnchor = n => {
+      if (n.radius < 18) return false;
+      const source = sources.get(n.source);
+      return source?.vulnerable !== false && !this.entryBlocked(n);
+    };
+    const priority = n => Number(sources.get(n.source)?.exposed || false);
+    const freshNoise = this.noises.filter(canAnchor).sort((a, b) => priority(b) - priority(a) || b.radius - a.radius || b.at - a.at)[0];
+    this.director.advance(now, team,
       { night, grace, active, retiring, evidence: !!freshNoise || !!fact, seen: !!seen, distance: seen ? distance(e, seen.pose) : Infinity, pressing: e.state === 'pressure' });
     const permission = this.director.permissions(now);
     if (e.state === 'dormant') {
+      if (this.spawnProbe && !canAnchor(this.spawnProbe.noise)) this.spawnProbe = null;
+      if (!night || grace || !eligible.length || !permission.presence) this.spawnProbe = null;
       this.activity = !night ? 'Waiting for night' : grace ? 'Starting grace' : 'Director: ' + this.director.state.reason;
       if (night && !grace && eligible.length && now >= e.cooldownUntil && permission.presence) {
         if (freshNoise) this.spawn(freshNoise, present, now);
@@ -331,19 +489,21 @@ export class ListenerSystem {
     if (e.state === 'retreat') {
       // Do not remove a creature under observation. Fade/retire only after it is
       // out of every player's view; no active-encounter teleportation.
-      if (now >= e.stateUntil && !present.some(p => this.inView(e, p.pose))) this.setState('dormant', now);
+      if (now >= e.stateUntil && !present.some(p => this.inPlayerView(e, p))) this.setState('dormant', now);
+      else if (!grounded) this.activity = groundActivity;
       else {
-        if (now >= e.stateUntil && now >= m.goalAt) { e.home = this.retreatPosition(present, now); m.goalAt = now + 3; this.pathAt = 0; }
+        if (now >= e.stateUntil && now >= m.goalAt) { e.home = this.retreatPosition(present, now); m.goalAt = now + 3; }
         if (e.home) this.move(e.home, 1.7, now);
         if (!m.progress || distance(e, m.progress) > .3) { m.progress = copyPoint(e); m.progressAt = now; }
         else if (now - m.progressAt >= 3) { if (e.home) this.memory.fail(e.home, now); m.goalAt = 0; m.progressAt = now; }
       }
       return true;
     }
+    if (!grounded) { this.activity = groundActivity; return true; }
     if (!fact && now - m.actionAt > 4) { this.decision = 'Evidence expired'; this.setState('retreat', now); return true; }
     const barrier = fact && this.pressure?.candidate(e, fact.point);
     if (barrier && now >= m.decideAt) {
-      const detour = this.route(fact.point), end = detour.at(-1);
+      const detour = this.route(fact.point, e, { requireComplete: true }), end = detour.at(-1);
       barrier.detour = !!end && goalDistance(end, fact.point) < 2 && detour.length / 1.6 < barrier.hits * 3;
       if (barrier.detour) { this.path = detour; this.pathAt = now + 1; }
     }
@@ -356,14 +516,17 @@ export class ListenerSystem {
         m.warningUntil = now + 1.2; m.burstUntil = m.warningUntil + 5; m.burstReadyAt = m.burstUntil + 5; this.cue('pursuit', now);
       }
       const touching = seen && distance(e, seen.pose) <= 1.25 && Math.abs(e.y - seen.pose.y) < 1.2 && now >= m.warningUntil;
-      const trace = touching && this.trace({ x: e.x, y: e.y + .9, z: e.z }, { ...seen.pose, y: seen.pose.y + .9 });
+      const trace = touching && this.trace({ x: e.x, y: e.y + .9, z: e.z }, { ...seen.pose, y: seen.pose.y + .9 }, { physical: true });
       if (touching && !trace.unloaded && !trace.barriers) {
         if (this.strikeTarget !== seen.id) { this.strikeTarget = seen.id; this.strikeAt = now + .9; this.cue('breath', now); }
         this.activity = 'Reaching for player'; e.yaw = Math.atan2(e.x - seen.pose.x, e.z - seen.pose.z); m.progressAt = now;
         if (now >= this.strikeAt && this.contact(seen.id)) { this.director.knockdown(keyOf(seen), now); this.decision = 'Successful contact: group recovery'; this.setState('retreat', now); return true; }
       } else {
         this.strikeTarget = null;
-        if (e.target && distance(e, e.target) > 1) { this.move(e.target, now < m.warningUntil ? 1.2 : now < m.burstUntil ? 5.4 : 2.6, now); moving = true; }
+        const obstructed = touching && (trace.unloaded || trace.barriers);
+        if (e.target && (distance(e, e.target) > 1 || Math.abs(e.y - e.target.y) >= 1.2 || obstructed)) {
+          this.move(e.target, now < m.warningUntil ? 1.2 : now < m.burstUntil ? 5.4 : 2.6, now); moving = true;
+        }
         if (now < m.warningUntil) this.activity = 'Warning before pursuit burst';
       }
     } else if (e.state === 'shadow' && fact) {

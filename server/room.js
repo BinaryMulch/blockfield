@@ -113,6 +113,7 @@ export class GameRoom {
       } });
     this.listener = new ListenerSystem(this.world, { saved: saved.listener, clock: () => this.clock, shelters: this.shelters, pressure,
       contact: id => { const player = this.players.get(id); return player ? this.encounters.knockDown({ ...player, key: player.token }, this.encounterPlayers()) : false; } });
+    this.upkeep.creature = this.listener;
   }
   encounterPlayers() { return [...this.players.values()].map(p => ({ id: p.id, key: p.token, pose: p.pose })); }
   get encountersDirty() { return this.encounters.dirty || this.encounterEvents.length > 0; }
@@ -149,6 +150,7 @@ export class GameRoom {
     {
       player.token = token; player.inventory = this.profiles.get(token); player.history.inventory = player.inventory;
     }
+    player.history.creature = this.listener;
     player.history.infrastructure = this.infrastructure; player.history.upkeep = this.upkeep; player.history.actorId = id;
     const encounter = this.encounters.record({ key: token });
     if (encounter?.state === 'downed') Object.assign(pose, encounter.position);
@@ -204,7 +206,14 @@ export class GameRoom {
     if (pose.x < -32 || pose.x > (this.world.size || SIZE) + 32 || pose.z < -32 || pose.z > (this.world.size || SIZE) + 32 || pose.y < -32 || pose.y > HEIGHT + 12
       || Math.abs(pose.pitch) > Math.PI / 2 + 0.01) return false;
     const encounter = this.encounters.publicState({ ...player, key: player.token });
-    if (encounter.state === 'downed' || encounter.revision > 0 && pose.encounterRevision !== encounter.revision) return false;
+    if (encounter.revision > 0 && pose.encounterRevision !== encounter.revision) return false;
+    if (encounter.state === 'downed') {
+      // Downed players can still look around. Keep their observation direction
+      // current without accepting movement, activity, or an old encounter pose.
+      if (['x', 'y', 'z'].some(axis => pose[axis] !== encounter.position[axis])) return false;
+      Object.assign(player.pose, { yaw: pose.yaw % (Math.PI * 2), pitch: pose.pitch, flying: false, active: false });
+      return true;
+    }
     Object.assign(player.pose, { x: pose.x, y: pose.y, z: pose.z, yaw: pose.yaw % (Math.PI * 2), pitch: pose.pitch,
       flying: false, active: pose.active === true });
     return true;
