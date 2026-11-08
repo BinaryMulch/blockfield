@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
-import { World, AIR, STONE, WOOD, SLAB, SIZE } from '../src/world.js';
+import { World, AIR, STONE, WOOD, DIRT, SLAB, UPPER_SLAB, SIZE, HEIGHT } from '../src/world.js';
+import { EditHistory } from '../src/history.js';
 import { Inventory, emptyGatherInventory, MATERIALS } from '../src/inventory.js';
 import { ItemDrops, MAX_DROPS, validDrops } from '../src/drops.js';
 import { ChunkWorld } from '../src/chunks.js';
@@ -90,8 +91,11 @@ test('shared drops transfer once between players, survive restart, and cannot be
   const { world, pose } = fixture(), room = new GameRoom({ world, gameMode: 'horror' });
   const a = room.join('Alice'), b = room.join('Bob');
   room.move(a.id, pose); world.set(8, 1, 6, WOOD);
-  assert.equal(room.command(a.id, { method: 'edit', x: 8, y: 1, z: 6, block: AIR, expected: room.expected(8, 1, 6) }).ok, true);
-  assert.equal(room.command(a.id, { method: 'drop', source: 0, amount: 1, expectedSource: { block: WOOD, count: 1 } }).ok, true);
+  for (let hit = 0; hit < 3; hit++) {
+    room.clock.elapsedSeconds += .31;
+    assert.equal(room.command(a.id, { method: 'edit', x: 8, y: 1, z: 6, block: AIR, expected: room.expected(8, 1, 6) }).ok, true);
+  }
+  assert.equal(a.inventory.count(WOOD), 0); assert.equal(room.drops.items.length, 1);
   assert.equal(room.command(a.id, { method: 'undo' }).reason, 'restricted');
   const item = room.drops.items[0]; item.readyAt = 0; room.move(b.id, { ...pose, x: item.x, z: item.z });
   assert.equal(room.command(b.id, { method: 'pickup', block: WOOD, count: 64 }).ok, true);
@@ -132,4 +136,60 @@ test('item rendering reuses geometry for every material and removes models on pi
   view.update(0.1, { getChunk: () => null }); assert.equal(view.root.children[0].visible, false);
   view.sync([]); assert.equal(view.root.children.length, 0);
   view.geometries.forEach(value => value.dispose()); view.material.map.dispose(); view.material.dispose(); view.flowers.dispose();
+});
+
+test('removing successive item floors settles every existing stack onto the nearest remaining slab or ground', () => {
+  const { world, inventory, drops } = fixture(), history = new EditHistory(world);
+  Object.assign(history, { inventory, drops });
+  world.set(8, 6, 8, DIRT); world.set(8, 3, 8, SLAB);
+  drops.items = [{ id: 'above-floor', block: WOOD, count: 7, x: 8.5, y: 7.16001, z: 8.5, readyAt: 0 }];
+  assert.equal(history.edit(8, 6, 8, AIR).dropsChanged, true);
+  assert.ok(Math.abs(drops.items[0].y - 3.66001) < 1e-8);
+  assert.equal(drops.items[0].count, 7); assert.equal(drops.items[0].id, 'above-floor');
+  assert.equal(drops.items[1].block, DIRT); assert.equal(drops.items[1].y, drops.items[0].y);
+  world.set(8, 3, 8, UPPER_SLAB);
+  // A separate elevated stack rests on the upper slab's actual top surface.
+  drops.items.push({ id: 'upper-slab', block: WOOD, count: 1, x: 8.5, y: 6, z: 8.5, readyAt: 0 });
+  drops.settle(world); assert.ok(Math.abs(drops.items.at(-1).y - 4.16001) < 1e-8);
+  assert.equal(history.edit(8, 3, 8, AIR).dropsChanged, true);
+  assert.ok(drops.items.every(item => Math.abs(item.y - 1.16001) < 1e-8));
+  assert.equal(validDrops(drops.snapshot(), world.size), true);
+});
+
+test('item floor checks never generate missing chunks and recheck after terrain arrives', () => {
+  const world = new ChunkWorld({ generate: false });
+  world.putChunk(0, 0, new Uint8Array(16 * 16 * HEIGHT), 0);
+  world.set(15, 0, 8, STONE); world.autoGenerate = true;
+  const drops = new ItemDrops([{ id: 'boundary', block: WOOD, count: 1, x: 15.95, y: 6, z: 8.5, readyAt: 0 }]);
+  assert.equal(drops.settle(world), false); assert.equal(drops.items[0].y, 6); assert.equal(world.chunks.size, 1);
+  world.putChunk(1, 0, new Uint8Array(16 * 16 * HEIGHT), 0); world.set(16, 0, 8, STONE);
+  assert.equal(drops.settle(world), true); assert.equal(world.chunks.size, 2);
+  assert.ok(Math.abs(drops.items[0].y - 1.16001) < 1e-8);
+});
+
+test('pickup feedback identifies only hotbar slots which received items, including partial stacks', () => {
+  const { world, inventory, drops, pose } = fixture();
+  inventory.stacks.fill(null); inventory.stacks[0] = { block: WOOD, count: 63 };
+  drops.items = [{ id: 'pickup', block: WOOD, count: 4, x: pose.x, y: 1.16001, z: pose.z, readyAt: 0 }];
+  const result = drops.pickup(world, inventory, pose, 0);
+  assert.equal(result.picked, 4); assert.deepEqual(result.hotbarSlots, [0, 1]);
+  inventory.stacks = Array.from({ length: 36 }, (_, i) => i < 9 ? { block: STONE, count: 64 } : null);
+  drops.items = [{ id: 'backpack', block: WOOD, count: 2, x: pose.x, y: 1.16001, z: pose.z, readyAt: 0 }];
+  const bag = drops.pickup(world, inventory, pose, 0);
+  assert.equal(bag.picked, 2); assert.deepEqual(bag.hotbarSlots, []);
+  assert.equal(drops.pickup(world, inventory, pose, 0).ok, false);
+});
+
+test('dropped models animate down after a floor update and rest without hovering', () => {
+  const view = new DropRenderer(new THREE.Scene(), new THREE.Texture(), () => {}), world = { getChunk: () => ({}) };
+  const item = { id: 'fall', block: WOOD, count: 1, x: 8.5, y: 4.16001, z: 8.5, readyAt: 0 };
+  view.sync([{ ...item, spawnY: 8.35 }]); const mesh = view.meshes.get(item.id);
+  assert.equal(mesh.position.y, 8.35);
+  view.update(.1, world); assert.ok(mesh.position.y < 8.35 && mesh.position.y > item.y);
+  view.update(1, world); assert.equal(mesh.position.y, item.y);
+  view.sync([{ ...item, y: 1.16001 }]);
+  assert.equal(mesh.position.y, item.y); view.update(.1, world); assert.ok(mesh.position.y < item.y && mesh.position.y > 1.16001);
+  view.update(1, world); assert.equal(mesh.position.y, 1.16001);
+  view.update(.4, world); assert.equal(mesh.position.y, 1.16001, 'stationary items do not bob above the floor');
+  view.geometries.forEach(g => g.dispose()); view.material.dispose(); view.flowers.dispose();
 });

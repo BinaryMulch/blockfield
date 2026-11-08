@@ -12,7 +12,7 @@ import { ChunkWorld } from '../src/chunks.js';
 import { generateChunk } from '../src/generation.js';
 import { browserSaves } from '../src/browser-saves.js';
 import { DamageState } from '../src/damage.js';
-import { AIR, WOOD, REINFORCED_PANEL, STORAGE_CABINET, SCRAP, REPAIR_TOOL, cabinetBlock } from '../src/world.js';
+import { AIR, WOOD, PLANKS, REINFORCED_PANEL, STORAGE_CABINET, REPAIR_TOOL, cabinetBlock } from '../src/world.js';
 
 async function connect(game, token = randomUUID()) {
   const socket = new WebSocket(`ws://127.0.0.1:${game.server.address().port}/multiplayer`), messages = [], waiting = new Set();
@@ -73,7 +73,7 @@ test('shared cabinet races checkpoint once, broadcast to peers, and survive host
   const streamed = await returning.next(m => m.type === 'chunk' && m.cx === Math.floor(panel.x / 16) && m.cz === Math.floor(panel.z / 16));
   assert.deepEqual(streamed.construction, disk.construction, 'damage is present in the first chunk snapshot after rejoining');
   const player = game.room.players.get(returning.welcome.self.id);
-  player.inventory.stacks[0] = { block: REPAIR_TOOL, count: 1 }; player.inventory.stacks[1] = { block: SCRAP, count: 1 };
+  player.inventory.stacks[0] = { block: REPAIR_TOOL, count: 1 }; player.inventory.stacks[1] = { block: PLANKS, count: 1 };
   assert.equal((await returning.request('repair', panel)).ok, true);
   assert.equal((await returning.next(m => m.type === 'construction')).damage.remaining, 4);
   assert.deepEqual(game.room.chunkSnapshot(Math.floor(panel.x / 16), Math.floor(panel.z / 16)).construction, []);
@@ -90,7 +90,7 @@ test('private storage and damage persist, and failed saves retain both sides for
     return structuredClone({ ...value, saveRevision: revision + 1 });
   });
   const local = new LocalSession(new ChunkWorld({ generate: false })); t.after(() => local.disconnect());
-  await local.start('Builder', 'Modern outpost', 'private-storage');
+  await local.start('Builder', 'Woodland cabin', 'private-storage');
   const { x, y, z } = local.horror.cabin, p = { x: x + 4, y: y + 1, z: z + 1 };
   local.pose = () => ({ ...local.self, x: x + 4.5, y: y + 1, z: z + 3.5, yaw: Math.PI / 2 });
   local.resources.stacks[0] = { block: STORAGE_CABINET, count: 1 }; local.resources.stacks[1] = { block: WOOD, count: 14 };
@@ -116,7 +116,7 @@ test('private storage and damage persist, and failed saves retain both sides for
   assert.equal(resumed.resources.count(WOOD), 0); assert.equal(resumed.infrastructure.snapshot().containers[0].stacks[0].count, 14);
   const panel = { x: x + 6, y: y + 1, z: z + 2 };
   assert.equal(visualDamage.remaining(panel.x, panel.y, panel.z, REINFORCED_PANEL), 3);
-  resumed.pose = local.pose; resumed.resources.stacks[0] = { block: REPAIR_TOOL, count: 1 }; resumed.resources.stacks[1] = { block: SCRAP, count: 1 };
+  resumed.pose = local.pose; resumed.resources.stacks[0] = { block: REPAIR_TOOL, count: 1 }; resumed.resources.stacks[1] = { block: PLANKS, count: 1 };
   assert.equal((await resumed.request('repair', panel)).ok, true);
   assert.equal(visualDamage.remaining(panel.x, panel.y, panel.z, REINFORCED_PANEL), 4);
   assert.deepEqual(resumed.infrastructure.chunkDamage(cx, cz), []);

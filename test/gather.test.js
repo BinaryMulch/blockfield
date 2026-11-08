@@ -110,7 +110,11 @@ test('multiplayer inventories are independent, authoritative, and restored by pe
   const room = new GameRoom({ gameMode: 'horror' }), token = randomUUID(), a = room.join('Alice', token), b = room.join('Bob', randomUUID());
   const x = Math.floor(a.pose.x), z = Math.floor(a.pose.z), y = Math.floor(a.pose.y) - 1, block = room.world.get(x, y, z);
   const command = (player, after) => room.command(player.id, { method: 'edit', x, y, z, block: after, expected: room.expected(x, y, z), counts: Array(15).fill(64) });
-  assert.equal(command(a, AIR).ok, true); assert.equal(a.inventory.count(block), 1); assert.equal(b.inventory.count(block), 0);
+  assert.equal(command(a, AIR).ok, true); assert.equal(a.inventory.count(block), 0); assert.equal(b.inventory.count(block), 0);
+  const item = room.drops.items[0]; assert.equal(item.block, block); item.readyAt = 0;
+  Object.assign(a.pose, { x: item.x, y: item.y - .17, z: item.z, active: true });
+  assert.equal(room.command(a.id, { method: 'pickup' }).ok, true); assert.equal(a.inventory.count(block), 1);
+  Object.assign(a.pose, { x: item.x + 2, y: item.y + .83, z: item.z + 2, active: false });
   assert.equal(command(b, block).reason, 'supplies'); assert.equal(room.world.get(x, y, z), AIR);
   assert.equal(room.join('Duplicate', token), null);
   const publicPlayers = JSON.stringify(room.playerList()); assert.equal(publicPlayers.includes(token), false); assert.equal(publicPlayers.includes('counts'), false);

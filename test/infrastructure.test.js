@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { GameRoom } from '../server/room.js';
 import { ChunkWorld } from '../src/chunks.js';
-import { World, AIR, WOOD, STONE, SAND, GLASS, CONCRETE, SCRAP, REINFORCED_PANEL, STORAGE_CABINET, SECURITY_DOOR, isDoor, isBlock, isCabinet, cabinetFacing, cabinetBlock, cabinetBlockFromYaw, doorBlock, doorState, buildBlock } from '../src/world.js';
+import { World, AIR, WOOD, PLANKS, STONE, SAND, GLASS, CONCRETE, SCRAP, REINFORCED_PANEL, STORAGE_CABINET, SECURITY_DOOR, isDoor, isBlock, isCabinet, cabinetFacing, cabinetBlock, cabinetBlockFromYaw, doorBlock, doorState, buildBlock } from '../src/world.js';
 import { Infrastructure, STORAGE_SLOTS, strength, validInfrastructure } from '../src/infrastructure.js';
 import { Inventory, RECIPES } from '../src/inventory.js';
 import { EditHistory } from '../src/history.js';
@@ -34,13 +34,13 @@ test('placed cabinets face the player from all four directions and render their 
     assert.equal(block, cabinetBlock(facing)); assert.equal(cabinetFacing(block), facing);
     assert.ok(isBlock(block) && isCabinet(block) && !isDoor(block));
     assert.equal(buildBlock(block), STORAGE_CABINET); assert.equal(strength(block), 2); assert.equal(inventory.count(STORAGE_CABINET), 0);
-    assert.equal(faceTile(block, 0), TILES.CABINET_FRONT, 'inventory icons always show the front');
+    assert.equal(faceTile(block, 0), TILES.CHEST_FRONT, 'inventory icons always show the front');
     const geometry = buildTerrainGeometry(world), normals = geometry.getAttribute('normal'), uvs = geometry.getAttribute('uv');
     let frontFaces = 0;
     for (let i = 0; i < normals.count; i += 4) {
       const normal = [normals.getX(i), normals.getY(i), normals.getZ(i)];
       const front = normal.every((value, axis) => value === placement.front[axis]);
-      const tile = front ? TILES.CABINET_FRONT : normal[1] ? TILES.CABINET_TOP : TILES.CABINET_SIDE;
+      const tile = front ? TILES.CHEST_FRONT : normal[1] ? TILES.CHEST_TOP : TILES.CHEST_SIDE;
       if (front) frontFaces++;
       assert.deepEqual([uvs.getX(i), uvs.getY(i)], tileUVs(tile)[0]);
     }
@@ -138,7 +138,8 @@ test('reinforced blocks share persistent strength across players and yield a sin
   const next = () => restored.command(c.id, { method: 'edit', ...p, block: AIR, expected: restored.expected(p.x, p.y, p.z) });
   assert.equal(next().remaining, 1); restored.advance(.31); assert.equal(next().ok, true);
   assert.equal(world.get(p.x, p.y, p.z), REINFORCED_PANEL, 'restoring a save does not mutate the old world');
-  assert.equal(restored.world.get(p.x, p.y, p.z), AIR); assert.equal(c.inventory.count(REINFORCED_PANEL), 1);
+  assert.equal(restored.world.get(p.x, p.y, p.z), AIR); assert.equal(c.inventory.count(REINFORCED_PANEL), 0);
+  assert.equal(restored.drops.items.filter(item => item.block === REINFORCED_PANEL).length, 1);
   assert.equal(restored.infrastructure.damage.size, 0);
 });
 
@@ -187,26 +188,26 @@ test('storage and structural damage round trip together and malformed or orphane
   assert.equal(validInfrastructure([{ ...c, stacks: Array(27) }]), false);
 });
 
-test('modern recipes consume finite ingredients', () => {
+test('traditional reinforced recipes consume wood and stone ingredients', () => {
   const inv = new Inventory(); inv.stacks[0] = { block: STONE, count: 4 }; inv.stacks[1] = { block: SAND, count: 1 };
   assert.equal(inv.craft(CONCRETE).ok, true); assert.equal(inv.count(CONCRETE), 4);
-  inv.stacks[1] = { block: SCRAP, count: 1 }; assert.equal(inv.craft(REINFORCED_PANEL).ok, true);
-  assert.equal(inv.count(CONCRETE), 0); assert.equal(inv.count(REINFORCED_PANEL), 2);
+  inv.stacks[0] = { block: PLANKS, count: 4 }; inv.stacks[1] = { block: SCRAP, count: 1 }; assert.equal(inv.craft(REINFORCED_PANEL).ok, true);
+  assert.equal(inv.count(PLANKS), 0); assert.equal(inv.count(SCRAP), 0); assert.equal(inv.count(REINFORCED_PANEL), 2);
   assert.ok(RECIPES.some(r => r.block === STORAGE_CABINET)); assert.ok(RECIPES.some(r => r.block === SECURITY_DOOR));
   inv.stacks[0] = { block: REINFORCED_PANEL, count: 6 }; inv.stacks[1] = { block: GLASS, count: 1 };
   assert.equal(inv.craft(SECURITY_DOOR).ok, true); assert.equal(inv.count(SECURITY_DOOR), 1);
 });
 
-test('32px textures add independent fine detail and modern blocks have distinct faces and valid mesh UVs', () => {
-  assert.equal(TILE_SIZE, 32); const tiles = generateTextureTiles();
-  for (const id of [TILES.CONCRETE, TILES.REINFORCED, TILES.CABINET_FRONT, TILES.SECURITY_TOP]) {
+test('classic 16px textures retain distinct infrastructure faces and valid mesh UVs', () => {
+  assert.equal(TILE_SIZE, 16); const tiles = generateTextureTiles();
+  for (const id of [TILES.STONE_BRICKS, TILES.BRACED_TIMBER, TILES.CHEST_FRONT, TILES.BRACED_DOOR_TOP]) {
     let varied = 0;
-    for (let y = 0; y < 32; y += 2) for (let x = 0; x < 32; x += 2) if (tiles[id][(x + y * 32) * 4] !== tiles[id][(x + 1 + y * 32) * 4]) varied++;
-    assert.ok(varied > 100, 'detail must be authored at 32px rather than duplicated 16px pixels');
+    for (let y = 0; y < TILE_SIZE; y += 2) for (let x = 0; x < TILE_SIZE; x += 2) if (tiles[id][(x + y * TILE_SIZE) * 4] !== tiles[id][(x + 1 + y * TILE_SIZE) * 4]) varied++;
+    assert.ok(varied > 32, 'infrastructure must retain visible pixel detail on the 16px grid');
   }
-  assert.equal(faceTile(STORAGE_CABINET, 0, 0, 1), TILES.CABINET_FRONT);
-  assert.equal(faceTile(STORAGE_CABINET, 0, 1, 0), TILES.CABINET_SIDE);
-  assert.equal(faceTile(STORAGE_CABINET, 1), TILES.CABINET_TOP);
+  assert.equal(faceTile(STORAGE_CABINET, 0, 0, 1), TILES.CHEST_FRONT);
+  assert.equal(faceTile(STORAGE_CABINET, 0, 1, 0), TILES.CHEST_SIDE);
+  assert.equal(faceTile(STORAGE_CABINET, 1), TILES.CHEST_TOP);
   const world = new World({ generate: false });
   world.set(10, 4, 10, STORAGE_CABINET); world.set(12, 4, 10, REINFORCED_PANEL);
   const geometry = buildTerrainGeometry(world);

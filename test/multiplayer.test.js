@@ -97,6 +97,7 @@ test('all players are protected from placement, undo restores, and door swings',
 
 test('support transactions and exact flower variants survive shared history', () => {
   const { a, edit, world } = fixture();
+  a.history.drops = null; // Internal undo accounting, unavailable as a Horror command.
   edit(a, 'placeFlower', { x: 8, y: 2, z: 8, block: DAISY });
   const removed = edit(a, 'edit', { x: 8, y: 1, z: 8, block: AIR });
   assert.equal(removed.changes.length, 2);

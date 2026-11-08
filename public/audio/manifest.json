@@ -1,0 +1,610 @@
+{
+  "version": 1,
+  "sources": {
+    "rubberduck": {
+      "author": "rubberduck",
+      "page": "https://opengameart.org/content/100-cc0-sfx-2",
+      "download": "https://opengameart.org/sites/default/files/sfx_100_v2.zip",
+      "license": "CC0-1.0"
+    },
+    "owlish": {
+      "author": "OwlishMedia (owlstorm)",
+      "page": "https://opengameart.org/content/sound-effects-pack",
+      "download": "https://opengameart.org/sites/default/files/Owlish%20Media%20Sound%20Effects.zip",
+      "license": "CC0-1.0"
+    },
+    "qubodup": {
+      "author": "Iwan Gabovitch (qubodup)",
+      "page": "https://opengameart.org/content/door-open-door-close-set",
+      "download": "https://opengameart.org/sites/default/files/qubodup-DoorSet.7z",
+      "license": "CC0-1.0"
+    },
+    "buckley": {
+      "author": "Scott Buckley",
+      "page": "https://www.scottbuckley.com.au/library/",
+      "license": "CC-BY-4.0"
+    },
+    "blockfield": {
+      "author": "Blockfield",
+      "license": "CC0-1.0"
+    }
+  },
+  "files": {
+    "sfx/grass-step-1.wav": {
+      "source": "owlish",
+      "original": "owlish/Footsteps/gassy-footstep1.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 1s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "794f34a80c83c4d52531ee518918b03ba862c195d416f4c663ad1c57c665e391",
+      "sha256": "aa4666efd23cc8273fd351538006cf161062c819aff54927610dc8f94183790a",
+      "duration": 0.4472,
+      "peak": 0.79001,
+      "rms": 0.11442
+    },
+    "sfx/hard-step-1.wav": {
+      "source": "owlish",
+      "original": "owlish/Footsteps/hard-footstep1.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 1s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "070a981c4d334da3a4ad830b2d627cca34402859ff92594c4c0acf187e5efbea",
+      "sha256": "25dd3f4395a111166b677e89e3c5dd9c16e1ace9e3f81fdf1558cf2cf365f168",
+      "duration": 0.3672,
+      "peak": 0.79001,
+      "rms": 0.05521
+    },
+    "sfx/grass-step-2.wav": {
+      "source": "owlish",
+      "original": "owlish/Footsteps/grassy-footstep2.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 1s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "0c1cc813a5a2582e3b79510c72f561fa14fb6dad7907e80f6bbcf25d05d17d5e",
+      "sha256": "3eada6200829ac0ea9b01b96646e2584a114d8b9f326fe4fc86399143443cedb",
+      "duration": 0.3052,
+      "peak": 0.79001,
+      "rms": 0.09575
+    },
+    "sfx/hard-step-2.wav": {
+      "source": "owlish",
+      "original": "owlish/Footsteps/hard-footstep2.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 1s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "678a613ca81bb6c527c30073b79f0ca69775864f1f508069b9a2e233b4213246",
+      "sha256": "b493f85bfb487dcc6917ac3954dda1ade5dd17f4a5ac81d5ea561320271a6d6b",
+      "duration": 0.3035,
+      "peak": 0.79001,
+      "rms": 0.0399
+    },
+    "sfx/grass-step-3.wav": {
+      "source": "owlish",
+      "original": "owlish/Footsteps/grassy-footstep3.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 1s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "0c5636c46f8cdab2fc73f9bbcd78c96e15a7692352a7f5b8dcac23255ab52b2b",
+      "sha256": "b7945d254e93d4de0f389ddaa638190015382d32c40a863a37bbd10064f4a3e9",
+      "duration": 0.3792,
+      "peak": 0.79001,
+      "rms": 0.10913
+    },
+    "sfx/hard-step-3.wav": {
+      "source": "owlish",
+      "original": "owlish/Footsteps/hard-footstep3.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 1s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "2d875f1a17adf4c5b1ec24871e6da9a0ae960e5fa0afbb5fba6ddc60b209ce53",
+      "sha256": "d28070763c2ff5253f2f0a6961cd9c2b5cebf4571e1af90f73c2e9a9703b88d7",
+      "duration": 0.398,
+      "peak": 0.79001,
+      "rms": 0.03318
+    },
+    "sfx/grass-step-4.wav": {
+      "source": "owlish",
+      "original": "owlish/Footsteps/grassy-footstep4.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 1s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "982205d815ff74ee093da7f76301bff8f0c02f22d0d364d8ca176fd5241c6bb5",
+      "sha256": "7b8eb727ab5b455bc29c7004650c7b56c0832537c4d1c79d1775ad25a8dd36ca",
+      "duration": 0.3752,
+      "peak": 0.79001,
+      "rms": 0.12017
+    },
+    "sfx/hard-step-4.wav": {
+      "source": "owlish",
+      "original": "owlish/Footsteps/hard-footstep4.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 1s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "398474c950ae1010511b01e312896e8b3aa96f8abb6cf5199540c957cb5ae0c5",
+      "sha256": "75bb685078208fc0b5d473f969d5bcca68422aa9cd59004938d1639946b79f92",
+      "duration": 0.3879,
+      "peak": 0.79001,
+      "rms": 0.02582
+    },
+    "sfx/footstep-wood-1.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_footstep_wood_01.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "52465eeb853a8fa3cd9f4e218dc0b28bdcb3bb52da72f5bece5d47cae2523a20",
+      "sha256": "e8be367b8d9ce25c946c35cbc46e2f2d80aba1731e0886ce1ca1a7b59fa90442",
+      "duration": 0.1793,
+      "peak": 0.79001,
+      "rms": 0.17499
+    },
+    "sfx/footstep-wood-2.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_footstep_wood_02.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "e6c35ceaabd50775ba222d8c9566e807b876debf066443626a0a4906849982d4",
+      "sha256": "65c88d7e21bc7850ee2986d94b4876e81c08c40f0ba52ce8f6325cc0e8dfd012",
+      "duration": 0.1939,
+      "peak": 0.79001,
+      "rms": 0.1454
+    },
+    "sfx/footstep-wood-3.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_footstep_wood_03.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "c02fd155ca74ece4e5c9992f1d48c615bc768b0a8c712423d7091bc0f1207d4c",
+      "sha256": "af809eff0be4e15b7ef551a6c7d97bc96f8858cd010490f1b2d0acb9179265db",
+      "duration": 0.113,
+      "peak": 0.79001,
+      "rms": 0.10508
+    },
+    "sfx/footstep-wood-4.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_footstep_wood_04.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "d229d313dc89c5c1d337f2f348d75822695530832fd10469595a3d37c53118ab",
+      "sha256": "6c7e9cf8cd7cbd02ba6956f832ff1ca1c18f5f2408a4c35d4217cab4bf429981",
+      "duration": 0.2226,
+      "peak": 0.79001,
+      "rms": 0.06564
+    },
+    "sfx/footstep-wet-1.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_footstep_wet_01.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "c2663b62fc7239972c044719b95daec4004976fc9bd0a1678c06170d99a3d408",
+      "sha256": "f8821c6fbe28daa9eb0b11307bf32b492d0eab1989f92a2621ca0e510d61ebc5",
+      "duration": 0.2529,
+      "peak": 0.79001,
+      "rms": 0.06882
+    },
+    "sfx/footstep-wet-2.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_footstep_wet_02.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "b2cfbdd75ee970dcb68cc157fec818eda2f5802989b0da684aa67817cb914b52",
+      "sha256": "293ff877d8cf77ba55edaf29a3dec3b167d3308679d2e1f443b803ab73f112df",
+      "duration": 0.3117,
+      "peak": 0.79001,
+      "rms": 0.08886
+    },
+    "sfx/footstep-wet-3.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_footstep_wet_03.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "4d475dd54d72a862cb72fcff4d1970161e619352f500f8b75755a2f5e987513e",
+      "sha256": "0e8a5290c00a6ad59b8f448f1feb949c2c22872b9d2da1f745d0efc6cb27a5da",
+      "duration": 0.3378,
+      "peak": 0.79001,
+      "rms": 0.06765
+    },
+    "sfx/wood-1.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_wood_01.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "3d2f562125ccc5f4e5b2d547fac204025249acbe4ff31db721a64a639cf58fd6",
+      "sha256": "9727552460b46ab5cf57f8e7434f2ce48b2df4eac534e3a6517b7fac59d38427",
+      "duration": 0.4764,
+      "peak": 0.79001,
+      "rms": 0.05407
+    },
+    "sfx/wood-2.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_wood_02.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "199fd6f6715ea73028163346ac08de5b02cbd304569a6590ae6fc581221a840d",
+      "sha256": "109501b929fa4e0c73b4a64e7bc2616476902f715978048709f31661538bc98a",
+      "duration": 0.4122,
+      "peak": 0.63434,
+      "rms": 0.04181
+    },
+    "sfx/wood-3.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_wood_03.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "57330fbbd91c7ab5356c65f22813988bcf07d363099b5dda0a958ceab443df2c",
+      "sha256": "89bd7e791197b385819e08fa55805be8c515c4429dcca2d388d6e4de6f682d6e",
+      "duration": 0.5617,
+      "peak": 0.79001,
+      "rms": 0.04774
+    },
+    "sfx/wood-hit-1.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_wood_hit_01.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "84abc80d93011d86f29bc55c10a023265ece0851d0784d1bf07c5990f08daeab",
+      "sha256": "d14b2de650a0f7a33532e92b8429ea0d4b994cb6be8d8c6fb6744f987a1ac70c",
+      "duration": 0.2449,
+      "peak": 0.79001,
+      "rms": 0.14689
+    },
+    "sfx/wood-hit-2.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_wood_hit_02.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "7ff0c18fafb7d025addb5d3cb586444842d8281ca9ed265eb2ac7213fa754b8a",
+      "sha256": "7ebc4544da4f8123da71d505e2ce210ad526c59869254aab16ecf84b611e4ce9",
+      "duration": 0.3147,
+      "peak": 0.72318,
+      "rms": 0.1161
+    },
+    "sfx/wood-hit-3.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_wood_hit_03.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "268dddd7bee1961ef6ea0ab41972be6eaa45c2449aca6e53dab57ecd04c7de2a",
+      "sha256": "a974ace061d565dda414ba9f93afd6dbae41fa576de832668baf59568f706de2",
+      "duration": 0.2795,
+      "peak": 0.79001,
+      "rms": 0.06129
+    },
+    "sfx/stones-1.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_stones_01.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "20d293a892e1fa6330da2569065aa260a822198bddce2b183f8c11642e7deb4d",
+      "sha256": "720f34436cfd9b8c09307bb76866a9eee146ba764d1f899e26a9f5d7d29e3f9e",
+      "duration": 0.4636,
+      "peak": 0.79001,
+      "rms": 0.03427
+    },
+    "sfx/stones-2.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_stones_02.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "23f8c7335eb656ea759899946ed665712ec41f4572656f421f7f5652bea66279",
+      "sha256": "6ebbddd7f5254d3ed02c9e2bbc44dfc14746d6c3cbf478d5e073b36c1bcc0612",
+      "duration": 0.3555,
+      "peak": 0.79001,
+      "rms": 0.04005
+    },
+    "sfx/stones-3.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_stones_03.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "94d7e0978fd90621d2d24e8ea33eefbae2933a434bb14c643cc12ea5175cefa9",
+      "sha256": "14679b264cc5f30ae17c5e54d163ed9d1a96acfb695191e10ef76bb1875f85d6",
+      "duration": 0.4271,
+      "peak": 0.79001,
+      "rms": 0.02638
+    },
+    "sfx/glass-1.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_glass_01.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "9c664345b242c2ff06e4d00b0383a03afe1b7bf8a685ec9628fb605a1e43c196",
+      "sha256": "04117cb222ca5a5d0ece11a7721a5e52d226998591ee3c5cc06368491057d0d7",
+      "duration": 0.2129,
+      "peak": 0.79001,
+      "rms": 0.12599
+    },
+    "sfx/glass-2.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_glass_02.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "27464f1af8eabe2df582d17d12fd9e140e69723d87a4548123cb0ac796aded0b",
+      "sha256": "b65a94ab12fdb048a89207b559bee98ee05d21190765fcab0d54cd0e0733186d",
+      "duration": 0.4004,
+      "peak": 0.79001,
+      "rms": 0.1007
+    },
+    "sfx/glass-3.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_glass_03.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "e540ec72e2386a1e98f23047f4f070a8554335f57417deb11514a198382a58fd",
+      "sha256": "3d282c89b880372f776b49357d4671f67a1a2e5030442d48e40cdcad4bfdd320",
+      "duration": 0.4202,
+      "peak": 0.79001,
+      "rms": 0.08945
+    },
+    "sfx/metal-1.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_metal_01.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "c2e97c7a8e7bca13eb3f711d8a9f58aa7f982c69af43af4ce4a151246a42ebee",
+      "sha256": "9bb805f24f26c22c700951c3f204d09915d7134da94f3ca98c6787d7be7e159f",
+      "duration": 0.5021,
+      "peak": 0.79001,
+      "rms": 0.10814
+    },
+    "sfx/metal-2.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_metal_02.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "d33548b1b6d977ecd5b8433c305dd99533232a2aad40d2e0bc5bc90e8549cbd2",
+      "sha256": "ac846df2920a8671db5b153e325673c084f17517b2d0bba6ee30fc41d78b7e67",
+      "duration": 0.3103,
+      "peak": 0.79001,
+      "rms": 0.0835
+    },
+    "sfx/metal-3.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_metal_03.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "53eb198a955b61962b6ca88461379236b08d2d0eec5807570339946b10117cab",
+      "sha256": "f00409546bb3d2b580fe292e1bef0264094777622c84914563b899c633b5ce90",
+      "duration": 0.242,
+      "peak": 0.79001,
+      "rms": 0.09324
+    },
+    "sfx/metal-hit-1.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_metal_hit_01.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "ad7167446b3d2fe0f5bb9009c4c4c6bca583107d4525549239782a22d84a5db0",
+      "sha256": "b1da3a5133932f824daae7a46bf89657c19ec7c5846efd38e14c01b0164e7f68",
+      "duration": 0.7536,
+      "peak": 0.72742,
+      "rms": 0.06791
+    },
+    "sfx/metal-hit-2.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_metal_hit_02.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "5ea1f077585fb655220a19bcd5cfaf44d60151652339cdcecc86b1fc3b4fe94d",
+      "sha256": "3559becfdaf1edff0fbc32f2db6cee235336b75227c639a21a24c6dfe0aef0f3",
+      "duration": 0.1867,
+      "peak": 0.29816,
+      "rms": 0.01741
+    },
+    "sfx/switch-1.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_switch_01.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "fa2c8ebd6361394762e9964698a0be2e31ae62dc91510f81c716c0ef8cf5741d",
+      "sha256": "d79254a7ce97f0b5472161e569c4aab31c57eec9a2c290d7a8f7103c18edb76b",
+      "duration": 0.2126,
+      "peak": 0.48587,
+      "rms": 0.0442
+    },
+    "sfx/switch-2.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_switch_02.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "4ea2e80d7b9bee89dcb878233ae6bd3a18c1cf960885ec844b3d43dfbf8d700b",
+      "sha256": "1803270b627b2cfb4ed79339c322e4e211cd3ead6033b2437929bd26c9d6553b",
+      "duration": 0.2112,
+      "peak": 0.52029,
+      "rms": 0.04507
+    },
+    "sfx/door-1.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_door_01.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "3fffeef28d3c1662814c33411fe5e76cbb1f74fe58c9ed0cab796c57ca9846b7",
+      "sha256": "b63239f30e132279c2cb531b86afbb26e73873f16bd44f783c65bbce98761479",
+      "duration": 0.3476,
+      "peak": 0.79001,
+      "rms": 0.08557
+    },
+    "sfx/door-2.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_door_02.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "317b5caa1e2800dea1189b73ac2a6e4f92b137da7bfe115c7acc382c3f43da6e",
+      "sha256": "29d3b12e07d13a0a83cd66cfde7513ac2c4904c55933d4e415097b8bfa7012b4",
+      "duration": 0.2204,
+      "peak": 0.79001,
+      "rms": 0.03943
+    },
+    "sfx/door-3.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_door_03.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "9776b3858ca41bb6e8363b8195a70ebc70e3404a6c08ead1907177c65ccd04b6",
+      "sha256": "fbe6c81a983f39169762ba3392685f273ea92444e08b91c48ecbb7c87d55e2e8",
+      "duration": 0.6904,
+      "peak": 0.79001,
+      "rms": 0.08921
+    },
+    "sfx/door-4.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_door_04.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "76d65828142228ea2c25d936971437a77bfad30bf482e3d55d49081a8723590a",
+      "sha256": "626004264a556a357c19207ac8dc4e8382db17caf144bc9a7d65be8f86ed57fd",
+      "duration": 0.1927,
+      "peak": 0.79001,
+      "rms": 0.0687
+    },
+    "sfx/door-5.wav": {
+      "source": "rubberduck",
+      "original": "materials/sfx100v2_door_05.ogg",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 2.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "96e51ecf6c493753740ae3ddd260734a079b5f492d087c7e68891ce78289e535",
+      "sha256": "204c462c1fcf750ed9d2714a657549fbdded5c4001d32385da0cf22d18fdb114",
+      "duration": 0.2776,
+      "peak": 0.79001,
+      "rms": 0.0444
+    },
+    "sfx/cloth-1.wav": {
+      "source": "owlish",
+      "original": "owlish/Cloth, Rustle/320138__owlstorm__blanket-movement-2.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 1.8s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "797e3917079898e11c8597721d9747cd619fc61a59fb9bfaf0e253b72d68d65b",
+      "sha256": "1ce1206761ef3ce22945d002b7bd6b4ed498a9f3a343d552480f9cc815309931",
+      "duration": 0.7924,
+      "peak": 0.79001,
+      "rms": 0.03472
+    },
+    "sfx/scrape-1.wav": {
+      "source": "owlish",
+      "original": "owlish/Impacts/scrape1.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 1.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "dca8c2c544f1645be419d528575a33d3452a1e2d5a0c5fbad46a881b9c5d3e04",
+      "sha256": "404f2bc64faed75115de1f68c570f6379c2437d7c0210428aa8b01d7d39c4684",
+      "duration": 0.4813,
+      "peak": 0.79001,
+      "rms": 0.1458
+    },
+    "sfx/cloth-2.wav": {
+      "source": "owlish",
+      "original": "owlish/Cloth, Rustle/320141__owlstorm__blanket-movement-3.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 1.8s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "0efaa7a0397061cd1aa38a66bfed01fd7d8cee31c2f07d572a08d4143d5bfcab",
+      "sha256": "1df2942936fd11803768954ee3b6f9097420b1ad40acb4ce55302a4fe6c66a19",
+      "duration": 1.8,
+      "peak": 0.79001,
+      "rms": 0.09838
+    },
+    "sfx/scrape-2.wav": {
+      "source": "owlish",
+      "original": "owlish/Impacts/scrape2.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 1.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "923ab149cb912995bc140370f20c99275c92687a160c767a3d122261cf6a8821",
+      "sha256": "f9e68b715126033867add71715189bcb138778182938a9a791eb5efb78005142",
+      "duration": 0.5581,
+      "peak": 0.79001,
+      "rms": 0.10973
+    },
+    "sfx/cloth-3.wav": {
+      "source": "owlish",
+      "original": "owlish/Cloth, Rustle/320142__owlstorm__blanket-movement-4.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 1.8s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "9b3c97b7ada8ee6ba2c05df379e4d89a6f4ba715cc90cdf11d4849f3aa0e05b0",
+      "sha256": "1fbe974859e3e804d051df50f765315206954ee73f0169d9ef0fdd09c2cf8e0e",
+      "duration": 1.7883,
+      "peak": 0.79001,
+      "rms": 0.07127
+    },
+    "sfx/scrape-3.wav": {
+      "source": "owlish",
+      "original": "owlish/Impacts/scrape3.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 1.5s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "23d2cc7234c2710b1683d39f061d9c18056f64d368ff7b90e5c33672d928bddb",
+      "sha256": "27632093d767dd727cd9871d9e304e39702afa28983e6954c281c7af69582f14",
+      "duration": 1.5,
+      "peak": 0.79001,
+      "rms": 0.07893
+    },
+    "sfx/breath-1.wav": {
+      "source": "owlish",
+      "original": "owlish/Human/breath-male.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0.4s, max 2s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "c9ea7de66b81db868f6a42564c0b619d0d4e00d1a9df247b4dcf0ede17f0ede8",
+      "sha256": "52929593130234ca58c327ca2091e848e7bea2bf183000378d8c7122241508da",
+      "duration": 2.0,
+      "peak": 0.79001,
+      "rms": 0.09487
+    },
+    "sfx/breath-2.wav": {
+      "source": "owlish",
+      "original": "owlish/Human/breath-male.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 5.4s, max 2s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "c9ea7de66b81db868f6a42564c0b619d0d4e00d1a9df247b4dcf0ede17f0ede8",
+      "sha256": "4250773bc77bfe02ef205df32389980b824a00fb0d0f8ae27e808a7c86101c16",
+      "duration": 2.0,
+      "peak": 0.79001,
+      "rms": 0.0831
+    },
+    "sfx/breath-3.wav": {
+      "source": "owlish",
+      "original": "owlish/Human/breath-male.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 10.4s, max 2s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "c9ea7de66b81db868f6a42564c0b619d0d4e00d1a9df247b4dcf0ede17f0ede8",
+      "sha256": "76417a35f76f5c8c78243d8a07f67ee4fddbebfb7a29228b4819be8c1f2b1b94",
+      "duration": 2.0,
+      "peak": 0.79001,
+      "rms": 0.07774
+    },
+    "sfx/sharp-breath.wav": {
+      "source": "owlish",
+      "original": "owlish/Human/freakedbreath.wav",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 1.8s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "10881ee9d5c83b15e269762ccc89cc932173d2c720588e9303e0995ff32b69db",
+      "sha256": "7a37c67f72a4f005207018d78bc45984a79cd0276021deea383553c22f1c2013",
+      "duration": 0.9854,
+      "peak": 0.79001,
+      "rms": 0.06385
+    },
+    "sfx/wood-door-open-1.wav": {
+      "source": "qubodup",
+      "original": "doors/qubodup-DoorSet/flac/qubodup-DoorOpen01.flac",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 3s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "eb97248b3338996da76f3597f2de14e0d9dcd499f1799c33b9b7e2559d7bf796",
+      "sha256": "f0e35bfcced800ef0b00cc80fc7ed0b6f98d3337e300caea324888b41e499df9",
+      "duration": 0.6706,
+      "peak": 0.79001,
+      "rms": 0.04052
+    },
+    "sfx/wood-door-open-2.wav": {
+      "source": "qubodup",
+      "original": "doors/qubodup-DoorSet/flac/qubodup-DoorOpen02.flac",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 3s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "c75c679b70cdc72b7c61c6b7078a042d33904abfbf47e25fb50d39003e56f2b5",
+      "sha256": "03dba6f374072aa1d517b24839f19e3fbe6914fcc4061a1807746e22c3d88e46",
+      "duration": 0.5454,
+      "peak": 0.79001,
+      "rms": 0.05167
+    },
+    "sfx/wood-door-close-1.wav": {
+      "source": "qubodup",
+      "original": "doors/qubodup-DoorSet/flac/qubodup-DoorClose01.flac",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 3s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "2959db3fddc39a3b6141e9d987e589393989a107473559e03733b3e0b4aaed94",
+      "sha256": "7e02b9d7f082f807526d4391bcba8f5cac4dcd0afc819fb208a3a3343411931b",
+      "duration": 0.8702,
+      "peak": 0.79001,
+      "rms": 0.0373
+    },
+    "sfx/wood-door-close-2.wav": {
+      "source": "qubodup",
+      "original": "doors/qubodup-DoorSet/flac/qubodup-DoorClose02.flac",
+      "changes": "Mono 44.1kHz PCM; high-pass 55Hz; trim from 0s, max 3s; peak -2dBFS; 2ms attack / 15ms release",
+      "sourceSha256": "29dd1e636ad932211dde35741f975e588d35f3995b255f872df1caf3caa5b92b",
+      "sha256": "da077d4dd4baccdfc1628f55cc685a64ad30044435e696ecdcfdb847b9b67e7c",
+      "duration": 0.5424,
+      "peak": 0.79001,
+      "rms": 0.04516
+    },
+    "music/day.mp3": {
+      "source": "buckley",
+      "original": "reverie.mp3",
+      "changes": "Excerpt 12\u2013122s; five-second loop crossfade; 10ms edge fades; -20 LUFS normalization; stereo MP3 160kbps",
+      "sourceSha256": "ca1e7194d7d6f49127c77ff2f4011d07182525c826bb7ded3d3944e69ca678d2",
+      "sha256": "bbf01e93ec47028f7e12e14d135c4fedeaa0754838260fe5c900c4aa5670cd81",
+      "duration": 105.0,
+      "peak": 0.57093,
+      "rms": 0.0942,
+      "title": "Reverie",
+      "page": "https://www.scottbuckley.com.au/library/reverie/"
+    },
+    "music/night.mp3": {
+      "source": "buckley",
+      "original": "the-old-ones.mp3",
+      "changes": "Excerpt 25\u2013125s; five-second loop crossfade; 10ms edge fades; -20 LUFS normalization; stereo MP3 160kbps",
+      "sourceSha256": "6f933a86122fade9ac69b848edf101a1dd286fac788488466b1b77f0e89721ec",
+      "sha256": "28209bdfe58ed9a85d7c2184c384e280109da9969b7d856986bf2694b5d602e7",
+      "duration": 95.0,
+      "peak": 0.60671,
+      "rms": 0.11698,
+      "title": "The Old Ones",
+      "page": "https://www.scottbuckley.com.au/library/the-old-ones/"
+    },
+    "music/tension.mp3": {
+      "source": "buckley",
+      "original": "the-encounter.mp3",
+      "changes": "Excerpt 30\u2013115s; five-second loop crossfade; 10ms edge fades; -20 LUFS normalization; stereo MP3 160kbps",
+      "sourceSha256": "d105d6b984260e38be9ab8da8d5057bcb7bdcd889e40fff4fe7f396472d6e883",
+      "sha256": "2f63d0a0b24e90bff50c0ecc1dc4ca63a324957aabe90c3daf5f131d3f15769c",
+      "duration": 80.0,
+      "peak": 0.79405,
+      "rms": 0.10091,
+      "title": "The Encounter",
+      "page": "https://www.scottbuckley.com.au/library/the-encounter/"
+    },
+    "sfx/pickup.wav": {
+      "source": "blockfield",
+      "original": "scripts/prepare-audio.py",
+      "changes": "Original two-note rising pickup cue; 180ms; 880\u20131650Hz fundamentals; rounded attack and decay; mono 44.1kHz PCM",
+      "sourceSha256": "2ee3ca0274e819a6ca634026a977dc8758e1c43a436521776c3f3bd84a341ee4",
+      "sha256": "bd9b275307abfa18df60ae105bef95315fd7c5cb6599b460f1876150b11787da",
+      "duration": 0.18,
+      "peak": 0.66104,
+      "rms": 0.17284
+    }
+  }
+}

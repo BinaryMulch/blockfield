@@ -1,0 +1,48 @@
+BLOCKFIELD AUDIO CREDITS
+
+Music by Scott Buckley — released under CC BY 4.0.
+https://www.scottbuckley.com.au
+https://creativecommons.org/licenses/by/4.0/
+
+Day: “Reverie”
+https://www.scottbuckley.com.au/library/reverie/
+Original: https://www.scottbuckley.com.au/library/wp-content/uploads/2020/03/sb_reverie.mp3
+
+Night: “The Old Ones”
+https://www.scottbuckley.com.au/library/the-old-ones/
+Original: https://www.scottbuckley.com.au/library/wp-content/uploads/2018/10/sb_theoldones.mp3
+
+Tension: “The Encounter” (Monomyth)
+https://www.scottbuckley.com.au/library/the-encounter/
+Original: https://www.scottbuckley.com.au/library/wp-content/uploads/2019/07/sb_monomyth_7_theencounter.mp3
+
+Changes: excerpts, five-second loop crossfades, 10ms edge fades, loudness balancing, MP3 encoding.
+Music is bundled for use within this game. No endorsement by the composer is implied.
+If sharing gameplay on YouTube, include the composer, track titles, website and
+CC BY 4.0 attribution in the video description, as requested by the composer.
+
+SOUND EFFECTS — CC0 1.0
+https://creativecommons.org/publicdomain/zero/1.0/
+
+“100 CC0 SFX #2” by rubberduck
+https://opengameart.org/content/100-cc0-sfx-2
+Wood/wet footsteps, wood and stone movement/impacts, glass, metal, doors, switches.
+
+“Sound Effects Pack” by OwlishMedia (owlstorm)
+https://opengameart.org/content/sound-effects-pack
+Grass/hard footsteps, blanket movements, scrapes, male breathing and sharp breath.
+
+“Door Open, Door Close Set” by Iwan Gabovitch (qubodup)
+https://opengameart.org/content/door-open-door-close-set
+DoorOpen01/02 and DoorClose01/02.
+
+Original item pickup cue by Blockfield, CC0 1.0.
+Authored in scripts/prepare-audio.py; two rising notes with soft attack/decay.
+
+Changes: selected excerpts; mono 44.1kHz 16-bit WAV; silence trimming;
+55Hz high-pass; peak balance; short fade edges. Game playback layers recordings
+with material-specific levels, small rate variations, stereo direction and wall filtering.
+
+manifest.json records the original file, source, edits, hashes, duration and levels
+for every bundled audio file. scripts/prepare-audio.py rebuilds these assets from
+extracted source downloads with ffmpeg; no download or ffmpeg is needed to play.

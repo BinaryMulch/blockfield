@@ -20,7 +20,7 @@ import { generateTextureTiles, faceTile, TILES } from '../src/textures.js';
 import { buildLanternField, fieldIndex } from '../src/lantern-field.js';
 import { migrateSave, validateSave, SAVE_VERSION } from '../src/saves.js';
 import { WardRenderer, shelterDescription, wardDescription } from '../src/ward-renderer.js';
-import { synthesizeSound } from '../src/sound.js';
+import { soundRecipe } from '../src/sound.js';
 
 function settle(shelters, pose, limit = 5000) {
   for (let i = 0; i < limit; i++) {
@@ -162,10 +162,10 @@ test('ward item geometry, textures, light propagation, state markers and cues ar
   renderer.sync(Array.from({ length: 30 }, (_, x) => ({ x, y: 2, z: 0, active: x % 2 === 0 })));
   assert.equal(renderer.active.count + renderer.inactive.count, MAX_VISIBLE_WARDS);
   renderer.sync(); assert.equal(renderer.active.count + renderer.inactive.count, 0);
-  assert.notDeepEqual(synthesizeSound(WARD_LANTERN, 'ward_on', 16000), synthesizeSound(WARD_LANTERN, 'ward_off', 16000));
+  assert.notDeepEqual(soundRecipe(WARD_LANTERN, 'ward_on'), soundRecipe(WARD_LANTERN, 'ward_off'));
   assert.match(shelterDescription({ state: 'protected' }), /Protected/);
   assert.match(wardDescription({ active: false }), /inactive/);
-  assert.equal(MATERIALS.find(m => m.id === WARD_LANTERN).name, 'Ward emitter');
+  assert.equal(MATERIALS.find(m => m.id === WARD_LANTERN).name, 'Ward lantern');
 });
 
 async function connect(game) {

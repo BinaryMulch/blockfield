@@ -212,7 +212,7 @@ test('all six block faces have correct lighting normals and outward picking norm
   material.dispose();
 });
 
-test('procedural materials are distinct and repeatable, with transparency only on glass', () => {
+test('procedural materials are distinct and repeatable, with cutout item sprites and translucent glass', () => {
   const tiles = generateTextureTiles();
   assert.deepEqual(tiles, generateTextureTiles());
   const signatures = new Set();
@@ -221,6 +221,7 @@ test('procedural materials are distinct and repeatable, with transparency only o
     const colors = new Set();
     for (let pixel = 0; pixel < tile.length; pixel += 4) {
       if (tileId === TILES.GLASS) assert.ok([18, 80, 190].includes(tile[pixel + 3]));
+      else if ([TILES.SAPLING, TILES.WOODEN_PEGS, TILES.CHARCOAL, TILES.STONE_HAMMER].includes(tileId)) assert.ok([0, 255].includes(tile[pixel + 3]));
       else assert.equal(tile[pixel + 3], 255);
       colors.add(`${tile[pixel]},${tile[pixel + 1]},${tile[pixel + 2]}`);
     }
@@ -228,6 +229,10 @@ test('procedural materials are distinct and repeatable, with transparency only o
     signatures.add(Buffer.from(tile).toString('base64'));
   }
   assert.equal(signatures.size, tiles.length);
+  for (const tile of [TILES.SAPLING, TILES.WOODEN_PEGS, TILES.CHARCOAL, TILES.STONE_HAMMER]) {
+    const alpha = [...tiles[tile]].filter((_, i) => i % 4 === 3);
+    assert.ok(alpha.includes(0) && alpha.includes(255), 'item sprites need a clear silhouette');
+  }
   const grassSide = tiles[TILES.GRASS_SIDE];
   for (let x = 0; x < TILE_SIZE; x++) {
     assert.ok(grassSide[x * 4 + 1] > grassSide[x * 4], 'grass fringe belongs along the top edge');

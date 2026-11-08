@@ -123,8 +123,9 @@ export class MultiplayerClient {
     else if (message.type === 'supplies') this.callbacks.supplies?.(message.inventory);
     else if (message.type === 'upkeep') this.callbacks.upkeep?.(message.info);
     else if (message.type === 'storage') this.callbacks.storage?.(message.storage);
-    else if (message.type === 'construction') this.callbacks.construction?.(message.damage);
-    else if (message.type === 'result') this.resolve(message.requestId, { ok: message.ok, reason: message.reason, moved: message.moved, swapped: message.swapped, storage: message.storage, remaining: message.remaining, info: message.info, message: message.message });
+    else if (message.type === 'construction') this.callbacks.construction?.(message.damage, { by: message.by });
+    else if (message.type === 'result') this.resolve(message.requestId, { ok: message.ok, reason: message.reason, moved: message.moved, swapped: message.swapped, storage: message.storage, remaining: message.remaining, info: message.info, message: message.message,
+      block: message.block, amount: message.amount, batches: message.batches, source: message.source, picked: message.picked, hotbarSlots: message.hotbarSlots });
   }
 
   disconnect() {

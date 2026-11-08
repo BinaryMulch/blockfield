@@ -173,13 +173,14 @@ test('acknowledged harvesting and survival time survive SIGKILL without relying 
   const onDisk = validateSave(JSON.parse(await readFile(path.join(dir, 'world.json'), 'utf8')));
   assert.equal(onDisk.gameMode, 'horror'); assert.equal(onDisk.clock.held, false);
   const profile = onDisk.profiles.find(([token]) => token === first.playerToken)[1];
-  assert.equal(profile.stacks[0].count, 1);
+  assert.equal(profile.stacks.some(Boolean), false); assert.equal(onDisk.drops[0].count, 1);
   const killed = once(host.child, 'exit'); host.child.kill('SIGKILL'); await killed;
   client.socket.terminate();
   host = await startProcess(dir, 'must-not-replace-saved-seed');
   client = peer(host.url.replace('http:', 'ws:') + 'multiplayer'); t.after(() => client.socket.terminate());
   const welcome = await client.wait(m => m.type === 'welcome');
   assert.equal(welcome.world.seed, 'crash-test'); assert.equal(welcome.worldName, 'Durable world');
+  assert.deepEqual(welcome.drops, onDisk.drops);
   assert.equal(welcome.clock.phase, onDisk.clock.phase); assert.equal(welcome.clock.elapsedSeconds, onDisk.clock.elapsedSeconds);
   const chunk = await client.wait(m => m.type === 'chunk' && m.cx === 15 && m.cz === 15);
   assert.equal(Buffer.from(chunk.blocks, 'base64')[15 + 16 * (15 + 16 * 7)], AIR);

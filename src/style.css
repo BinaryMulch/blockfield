@@ -1,4 +1,13 @@
 :root { font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif; color: #243c32; font-synthesis: none; }
+.director-debug { position: fixed; z-index: 8; top: max(16px, env(safe-area-inset-top)); right: max(16px, env(safe-area-inset-right)); width: min(410px, calc(100vw - 32px)); max-height: calc(100dvh - 150px); overflow-y: auto; padding: 14px; border: 1px solid #a8c2b477; border-radius: 7px; background: #101c20f5; color: #e7f0e8; box-shadow: 0 8px 32px #0005; font: 11px/1.5 ui-monospace, monospace; }
+.director-debug .performance-heading button { color: #e7f0e8; }
+.director-debug p { color: #a9c4b2; }
+.director-debug dl { margin: 0; display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px 12px; }
+.director-debug dt { color: #a9c4b2; }
+.director-debug dd { margin: 0; overflow-wrap: anywhere; }
+.director-debug pre { margin-bottom: 0; white-space: pre-wrap; font: inherit; }
+.playing .director-debug { pointer-events: none; }
+.general-settings #director-debug-toggle { min-height: 44px; padding: 10px 14px; border: 1px solid #a5b39b; border-radius: 6px; background: #e2e8d6; color: #294f3e; font-size: 13px; }
 * { box-sizing: border-box; }
 body { margin: 0; overflow: hidden; background: #bfdce5; }
 button { font: inherit; cursor: pointer; }
@@ -90,11 +99,22 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
 }
 .hud { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); text-align: center; z-index: 2; }
 .hotbar { display: flex; width: max-content; margin-inline: auto; gap: 7px; padding: 8px; border: 1px solid #fff9; border-radius: 2px; background: #ecf0debd; box-shadow: 0 5px 25px #28433215; backdrop-filter: blur(12px); }
-.slot { position: relative; width: clamp(22px, 5.6vw, 68px); height: 72px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 8px 9px; border: 1px solid transparent; border-radius: 0; background: #fff4; color: #52614c; font-size: 10px; }
+.slot { position: relative; width: clamp(28px, 5.6vw, 68px); height: 80px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 6px; padding: 22px 3px 5px; border: 1px solid transparent; border-radius: 0; background: #fff4; color: #52614c; font-size: 10px; }
 .slot:hover { background: #ffffffe0; }
 .slot.selected { background: #fffbea; color: #294f3e; border-color: #5c7859; box-shadow: 0 2px 0 #56704b; }
-.slot-key { position: absolute; top: 6px; left: 8px; font-size: 9px; opacity: .6; }
-.slot-supply { position: absolute; top: 4px; right: 7px; font-size: 13px; opacity: .6; }
+.slot-key { position: absolute; z-index: 2; top: 2px; left: 2px; display: inline-flex; align-items: center; justify-content: center; min-width: 15px; height: 17px; padding: 1px 3px; border: 1px solid #ffffff70; border-radius: 2px; background: #17251df2; color: #fff; font: 700 11px/1 ui-monospace, monospace; }
+.slot-supply { position: absolute; z-index: 3; top: auto; bottom: 19px; right: 3px; color: #fff; font: 700 12px/1.1 ui-monospace, monospace; text-shadow: -1px 0 #222, 1px 0 #222, 0 -1px #222, 0 1px #222; }
+.slot-name { display: block; width: 100%; height: 12px; line-height: 12px; white-space: nowrap; text-align: left; }
+.slot-name > span { display: inline-block; white-space: nowrap; transform-origin: left center; }
+.slot-pickup .block-icon { animation: hotbar-pickup 300ms ease-out; }
+@keyframes hotbar-pickup {
+  0% { filter: brightness(1.9) drop-shadow(0 0 4px #ffe6a0); transform: scale(1.14); }
+  100% { filter: brightness(1); transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .slot-pickup .block-icon { animation-name: hotbar-pickup-reduced; }
+  @keyframes hotbar-pickup-reduced { from { filter: brightness(1.9); } to { filter: brightness(1); } }
+}
 .inventory-toggle { display: block; margin: 14px auto 0; padding: 8px 14px; border: 1px solid #71876e70; border-radius: 6px; color: inherit; background: #ecf0debd; font-size: 12px; }
 .inventory-toggle kbd { margin-left: 12px; }
 .inventory-toggle:disabled { opacity: .5; cursor: default; }
@@ -138,30 +158,12 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
   .inventory-hotbar { gap: 3px; }
   .inventory-slot { font-size: 8px; }
   .inventory-slot .block-icon { width: 20px; height: 20px; }
-  .inventory-slot .block-icon.slab { height: 10px; margin-top: 10px; }
-  .inventory-slot > span:last-child { display: none; }
   .inventory-slot { min-height: 60px; }
   .inventory-footer { flex-wrap: wrap; }
   .inventory-footer span { order: 3; width: 100%; text-align: center; }
 }
-.block-icon { display: block; width: 29px; height: 29px; background: #ab805d; border-top: 7px solid #bb946e; box-shadow: inset -8px 0 #00000018, 2px 3px 0 #243c3217; transform: skewY(-5deg); }
-.block-icon.grass { background: #8a6e4d; border-top-color: #88b75b; }
-.block-icon.dirt { background: #aa805d; border-top-color: #b78e69; }
-.block-icon.stone { background: #98a09c; border-top-color: #b1bab4; }
-.block-icon.wood { background: #92704a; border-top-color: #c6a574; }
-.block-icon.leaves { background: #578640; border-top-color: #7ca65b; }
-.block-icon.sand { background: #d6c18e; border-top-color: #e4d3a3; }
-.block-icon.planks { background: #bc945b; border-top-color: #c9a26b; }
-.block-icon.bricks { background: #a85941; border-top-color: #b86a4e; }
-.block-icon.glass { background: #c3e4e866; border-top-color: #a8d0d7; }
-.block-icon.door { background: #b3874e; border-top-color: #bd945f; }
-.block-icon.lantern { background: #ffc170; border-top-color: #373e3d; box-shadow: 0 0 10px #ffc17066; }
-.block-icon { position: relative; border-top: 0; background-size: 100% 100%; image-rendering: pixelated; }
-.block-icon::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 7px; background-image: var(--top-texture); background-size: 29px 29px; image-rendering: pixelated; }
-.block-icon.slab { height: 15px; background-size: 29px 29px; background-position: bottom; margin-top: 14px; }
-.block-icon.slab::before { height: 5px; }
-.block-icon.flower { background-color: transparent; box-shadow: none; transform: none; }
-.block-icon.flower::before { display: none; }
+.block-icon { display: block; flex-shrink: 0; width: 30px; height: 30px; border: 1px solid #262626; border-radius: 0; background-color: #777; background-size: 100% 100%; background-repeat: no-repeat; image-rendering: pixelated; box-shadow: 1px 1px 0 #ffffff38; }
+
 .mode-indicator { position: fixed; top: 79px; left: 35px; padding: 8px 11px; border-radius: 5px; background: #294f3edd; color: #fffbea; font-size: 10px; font-weight: 700; letter-spacing: 1px; pointer-events: none; }
 .mode-indicator span { margin-left: 9px; font-weight: 400; letter-spacing: 0; opacity: .8; }
 .crosshair { position: fixed; top: 50%; left: 50%; width: 15px; height: 15px; transform: translate(-50%, -50%); pointer-events: none; }
@@ -191,10 +193,8 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
   h1 { letter-spacing: -1.7px; }
   .instructions { gap: 8px 14px; font-size: 10px; }
   .hotbar { gap: 4px; padding: 6px; }
-  .slot { width: clamp(18px, 5.4vw, 34px); padding-left: 1px; padding-right: 1px; font-size: 8px; }
-  .slot-key { left: 4px; }
-  .block-icon { width: 20px; height: 24px; }
-  .block-icon.slab { height: 12px; margin-top: 12px; background-size: 20px 24px; }
+  .slot { width: clamp(26px, calc((100vw - 60px) / 9), 34px); padding-left: 1px; padding-right: 1px; font-size: 8px; }
+  .block-icon { width: 22px; height: 22px; }
 }
 @media (max-height: 680px) {
   .menu { padding-top: 55px; padding-bottom: 135px; }
@@ -221,7 +221,6 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
 .touch-mode .hud { width: calc(100% - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)); bottom: calc(10px + env(safe-area-inset-bottom)); }
 .touch-mode .hotbar { width: 100%; max-width: 1000px; overflow-x: auto; justify-content: flex-start; padding: 6px; touch-action: pan-x; overscroll-behavior-x: contain; }
 .touch-mode .slot { flex: 0 0 52px; width: 52px; height: 64px; font-size: 9px; padding: 6px 3px; gap: 4px; }
-.touch-mode .slot-key { display: none; }
 .touch-mode .mode-indicator { top: calc(100px + env(safe-area-inset-top)); left: 160px; padding: 7px; }
 .touch-mode .mode-indicator span { display: none; }
 .touch-mode .brand { top: calc(20px + env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left)); }
@@ -274,27 +273,50 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
 .inventory-card h3 { font-size: 12px; font-weight: 500; margin: 16px 0 7px; color: #303030; }
 .inventory-storage, .inventory-hotbar { display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 5px; }
 .inventory-slot { min-width: 0; min-height: 64px; height: 68px; padding: 8px 3px; justify-content: center; background: #8b8b8b; border: 2px solid; border-color: #373737 #fff #fff #373737; border-radius: 0; color: white; box-shadow: none; }
-.inventory-slot .block-icon { width: 31px; height: 34px; filter: drop-shadow(2px 3px 0 #0003); }
-.inventory-slot .block-icon.slab { height: 17px; margin-top: 17px; background-size: 31px 34px; }
-.inventory-slot kbd { top: 3px; left: 3px; background: transparent; color: #e9e9e9; border: 0; font-size: 9px; padding: 0; }
+.inventory-slot .block-icon { width: 32px; height: 32px; }
+.inventory-slot kbd { z-index: 2; top: 2px; left: 2px; min-width: 14px; padding: 1px 3px; background: #17251df2; color: #fff; border: 1px solid #ffffff70; border-radius: 2px; font: 700 10px/1.1 ui-monospace, monospace; }
 .inventory-slot[aria-pressed='true'] { background: #929c8a; border-color: #30392b #fff #fff #30392b; box-shadow: inset 0 0 0 2px #cde2b6; color: white; }
-.inventory-slot[aria-pressed='true'] kbd { background: transparent; color: white; }
+.inventory-slot[aria-pressed='true'] kbd { background: #17251df2; color: white; }
 .inventory-slot:hover { background: #a7a7a7; }
 .inventory-slot-name { display: none; position: absolute; z-index: 6; left: 0; bottom: calc(100% + 6px); padding: 7px 10px; border: 2px solid #47265c; background: #160c21f2; color: white; white-space: nowrap; font-size: 11px; pointer-events: none; box-shadow: 2px 2px 0 #0008; }
 .inventory-slot:hover .inventory-slot-name { display: block; }
-.inventory-quantity { top: auto; right: 4px; bottom: 3px; font-size: 15px; font-weight: 700; color: white; text-shadow: 2px 2px 0 #383838; }
-.inventory-crafting { display: block; margin-top: 0; padding: 0 0 15px; background: transparent; border-bottom: 2px solid #999; border-radius: 0; }
+.inventory-quantity { z-index: 3; top: auto; right: 3px; bottom: 2px; font: 700 13px/1.1 ui-monospace, monospace; color: white; text-shadow: -1px 0 #222, 1px 0 #222, 0 -1px #222, 0 1px #222; }
+.inventory-crafting { display: block; margin-top: 0; padding: 0 0 16px; background: transparent; border-bottom: 2px solid #999; border-radius: 0; }
 .inventory-crafting h3 { margin-top: 0; }
-.inventory-recipes { display: flex; flex-wrap: wrap; gap: 7px; }
-.inventory-recipes button { display: grid; place-items: center; width: 52px; height: 50px; background: #aaa; border: 2px solid; border-color: #fff #555 #555 #fff; border-radius: 0; }
-.inventory-recipes button[aria-pressed='true'] { background: #87977c; box-shadow: inset 0 0 0 2px #d5e7bc; }
-.inventory-craft-action { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
-.inventory-crafting p { color: #383838; line-height: 1.6; }
-.inventory-crafting button { border-radius: 0; }
+.crafting-layout { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 24px; align-items: start; }
+.crafting-workbench, .crafting-book { min-width: 0; }
+.crafting-station { display: flex; align-items: center; justify-content: center; gap: 16px; padding: 5px 0; }
+.crafting-grid { display: grid; grid-template-columns: repeat(3, 48px); gap: 3px; }
+.inventory-crafting .inventory-slot { height: 48px; min-height: 48px; padding: 4px; border: 2px solid; border-color: #373737 #fff #fff #373737; background: #8b8b8b; }
+.inventory-crafting .inventory-slot:hover { background: #a7a7a7; }
+.inventory-crafting .inventory-slot:disabled { opacity: 1; }
+.crafting-arrow { font: 40px/1 ui-monospace, monospace; color: #555; text-shadow: 1px 1px #eee; }
+.inventory-crafting .crafting-result { flex-shrink: 0; width: 62px; height: 62px; border-width: 3px; }
+.inventory-crafting .crafting-result:not(:disabled) { background: #a1a790; }
+.crafting-result .block-icon { width: 38px; height: 38px; }
+.crafting-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; margin-top: 10px; }
+.inventory-crafting .crafting-tools button { padding: 6px 9px; border: 2px solid; border-color: #fff #555 #555 #fff; background: #aaa; color: #222; font-size: 11px; border-radius: 0; }
+.crafting-tools span { max-width: 180px; font-size: 10px; line-height: 1.5; color: #444; }
+.crafting-book h4 { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 5px; margin: 0 0 8px; font-size: 12px; font-weight: 600; }
+.crafting-book h4 span { font-size: 10px; font-weight: 400; color: #444; }
+.inventory-recipes { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+.inventory-crafting .inventory-recipes button { display: grid; place-items: center; width: 100%; height: 42px; padding: 4px; background: #aaa; border: 2px solid; border-color: #fff #555 #555 #fff; border-radius: 0; }
+.inventory-recipes .block-icon { width: 27px; height: 27px; }
+.inventory-crafting .inventory-recipes button[aria-pressed='true'] { background: #87977c; box-shadow: inset 0 0 0 2px #d5e7bc; }
+.inventory-recipes .recipe-unavailable .block-icon { opacity: .4; }
+.inventory-recipes button:hover { filter: brightness(1.12); }
+.inventory-crafting p { margin: 8px 0 0; color: #383838; font-size: 10px; line-height: 1.5; }
+.recipe-ghost { opacity: .25; }
+.gather-inventory .inventory-slot { height: 50px; min-height: 44px; }
+.gather-inventory .inventory-slot .block-icon { width: 30px; height: 30px; }
+.gather-inventory .crafting-result { height: 62px; }
+.gather-inventory .crafting-result .block-icon { width: 38px; height: 38px; }
+.gather-inventory .inventory-status { margin: 10px 0; }
+.gather-inventory .inventory-card h3 { margin-top: 12px; }
+.gather-inventory .inventory-crafting h3 { margin-top: 0; }
 .inventory-cursor { position: fixed; z-index: 20; width: 42px; height: 46px; pointer-events: none; filter: drop-shadow(2px 3px 1px #0006); }
-.inventory-cursor .block-icon { width: 32px; height: 36px; margin: 0; }
-.inventory-cursor .block-icon.slab { height: 18px; margin-top: 18px; }
-.inventory-cursor b { position: absolute; right: 0; bottom: 0; color: white; font-size: 16px; text-shadow: 2px 2px #333; }
+.inventory-cursor .block-icon { width: 32px; height: 32px; margin: 0; }
+.inventory-cursor b { position: absolute; right: 0; bottom: 0; color: white; font: 700 13px/1.1 ui-monospace, monospace; text-shadow: -1px 0 #222, 1px 0 #222, 0 -1px #222, 0 1px #222; }
 .gather-inventory .inventory-footer { justify-content: flex-end; }
 .gather-inventory .inventory-footer span { margin-right: auto; }
 #inventory-drop-actions { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -423,7 +445,6 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
 .controls-note { margin: 16px 0; color: #4e6258; font-size: 13px; line-height: 1.6; text-align: left; }
 .hud, .mode-indicator { display: none; }
 .playing .hud, .playing .mode-indicator { display: block; }
-.playing .slot-key { display: none; }
 .playing .brand { display: none; }
 .toast { z-index: 6; max-width: calc(100vw - 32px); white-space: normal; text-align: center; }
 .performance-panel { z-index: 7; max-height: calc(100dvh - 165px); }
@@ -434,13 +455,11 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
   .menu-primary { min-height: 60px; padding: 14px 18px; }
   .world-choice { padding: 14px; }
 }
-.playing .slot-supply { font-size: 13px; font-weight: 700; text-shadow: 1px 1px #fff8; }
 @media (max-width: 650px) {
   .inventory-slot { min-height: 44px; height: 50px; }
-  .inventory-slot .block-icon { width: 22px; height: 25px; }
-  .inventory-slot .block-icon.slab { height: 12px; margin-top: 13px; }
+  .inventory-slot .block-icon, .gather-inventory .inventory-slot .block-icon { width: 24px; height: 24px; }
   .inventory-storage, .inventory-hotbar { gap: 3px; }
-  .inventory-quantity { font-size: 12px; right: 2px; bottom: 2px; }
+  .inventory-quantity { font-size: 12px; }
 }
 
 .survival-status { display: none; position: fixed; z-index: 2; top: calc(52px + env(safe-area-inset-top)); left: max(16px, env(safe-area-inset-left)); color: #fff4d9; font-size: 13px; text-shadow: 0 1px 3px #000; pointer-events: none; }
@@ -453,76 +472,35 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
 .ward-hint { display: none; position: fixed; z-index: 2; left: 50%; bottom: 140px; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); padding: 8px 12px; border-radius: 4px; background: #172a25ed; color: #eff3e4; font-size: 13px; text-align: center; pointer-events: none; }
 .playing .shelter-status, .playing .ward-hint { display: block; }
 
-/* Contemporary outpost: painted metal, slate surfaces, and cool status lights. */
-:root { color-scheme: dark; color: #dae5e9; }
-.menu, .touch-mode .menu { background: #080f1bb3; }
-.menu-card, .night .menu-card { background: #15212e; color: #e4edf1; border-color: #6f8c9c55; border-radius: 12px; }
-.menu-card .eyebrow, .inventory-header .eyebrow { color: #85c7bd; }
-.menu-card > p, .night .menu-card > p, .menu-card .footnote, .night .menu-card .footnote,
-.saved-world-details, .saved-world-seed, .world-search-label, .connected-players-status,
-.graphics-settings p, .general-settings p, .controls-note, .instructions, .night .instructions { color: #b0c1cc; }
-.menu-card .menu-back, .saved-world-title, .connected-player-name, .session-mode strong { color: #e1edf0; }
-.menu-card .menu-primary, .pause-actions .play-button, .world-library-actions button[data-menu-screen='create'],
-.saved-world-actions button:first-child, .inventory-footer #inventory-back { background: #326b68; border-color: #4b9390; color: #f0ffff; box-shadow: none; }
-.menu-card .menu-primary:hover, .pause-actions .play-button:hover { background: #3d807c; }
-.menu-primary span { color: #ceeeee; }
-.options-actions button, .pause-actions .inventory-toggle, .pause-actions .leave-button,
-.world-library-actions button, .saved-world-actions button, .world-choice, .connected-players,
-.session-mode, .general-settings .sound-toggle, .general-settings .performance-toggle {
-  background: #223444; color: #d6e4eb; border-color: #506778; box-shadow: none;
-}
-.options-actions button:hover, .pause-actions .inventory-toggle:hover, .pause-actions .leave-button:hover { background: #30495b; }
-.world-library .saved-world { background: #1c2c3b; border-color: #3e5668; }
-.world-choice input, .world-choice select, #world-search, #player-name,
-.graphics-settings select, .control-picker select { background: #0f1b28; color: #dce9ef; border-color: #506778; }
-.world-choice label, .player-setting, .graphics-settings legend, .general-settings legend,
-.graphics-settings label, .control-picker, .connected-players-heading h2 { color: #d6e4eb; }
-.graphics-settings, .general-settings, .connected-player-list li, .instructions > span { border-color: #3e5668; }
-#connected-player-count, .world-list-empty { color: #a9bdc8; }
-.connected-player-you, .controls-screen kbd { background: #2f505b; color: #d9efee; }
-.inventory-dialog { background: #172735; color: #dfebf0; border: 1px solid #617a8c; border-radius: 10px; box-shadow: 0 24px 90px #020810b3; }
-.inventory-dialog::backdrop { background: #060e1bc2; }
-.inventory-header > button, .inventory-craft-action button, #inventory-drop-actions button { background: #2a4353; color: #e2eff3; border: 1px solid #617a8c; border-radius: 5px; box-shadow: none; }
-#inventory-description, .inventory-status, .inventory-footer span, #inventory-recipe { color: #adc3cd; }
-.inventory-dialog h3 { color: #c6e5df; }
-.inventory-slot { background: #213746; color: #eef6f8; border: 1px solid #4d6879; border-radius: 4px; }
-.inventory-slot:hover { background: #304f60; }
 .inventory-slot:disabled { cursor: default; }
-.inventory-slot[aria-pressed='true'] { background: #285854; border-color: #8ad1c4; box-shadow: inset 0 0 0 1px #8ad1c4; }
-.inventory-slot-name { background: #0c1825; border: 1px solid #617a8c; border-radius: 4px; }
-.inventory-recipes button { background: #223b4a; border: 1px solid #506f80; border-radius: 4px; }
-.inventory-recipes button[aria-pressed='true'] { background: #32635e; border-color: #91d8c9; }
-.inventory-footer #inventory-back { border: 1px solid #4b9390; border-radius: 5px; }
 .storage-dialog { width: min(760px, calc(100vw - 24px)); }
 .storage-dialog .inventory-card { padding: 20px; }
 .storage-dialog h3 { margin: 18px 0 10px; font-size: 13px; font-weight: 600; }
 .storage-dialog .inventory-slot { height: 52px; min-height: 44px; }
-.storage-dialog .inventory-slot .block-icon { width: 26px; height: 29px; }
-.storage-dialog .inventory-slot .block-icon.slab { height: 14px; margin-top: 15px; background-size: 26px 29px; }
-.storage-dialog .inventory-quantity { top: auto; bottom: 3px; right: 5px; text-shadow: 1px 1px #000; }
-.inventory-dialog :focus-visible, .menu-card :focus-visible { outline: 2px solid #9bded3; outline-offset: 2px; }
+.storage-dialog .inventory-slot .block-icon { width: 26px; height: 26px; }
+.storage-dialog .inventory-quantity { top: auto; bottom: 3px; right: 5px; }
+.inventory-dialog :focus-visible, .menu-card :focus-visible { outline: 2px solid #6f8b55; outline-offset: 2px; }
 @media (max-width: 650px) {
   .storage-dialog .inventory-card { padding: 14px; }
   .storage-dialog .inventory-slot { height: 44px; }
-  .storage-dialog .inventory-slot .block-icon { width: 21px; height: 24px; }
-  .storage-dialog .inventory-slot .block-icon.slab { height: 12px; margin-top: 12px; background-size: 21px 24px; }
+  .storage-dialog .inventory-slot .block-icon { width: 22px; height: 22px; }
 }
 
 .upkeep-dialog { width: min(520px, calc(100vw - 24px)); }
-#upkeep-detail, #upkeep-status { color: #c0d2dc; line-height: 1.65; font-size: 14px; }
-#upkeep-status { color: #99b8c3; font-size: 12px; }
+#upkeep-detail, #upkeep-status { color: #383838; line-height: 1.65; font-size: 14px; }
+#upkeep-status { color: #424242; font-size: 12px; }
 .upkeep-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0; }
-.upkeep-actions button { min-height: 44px; padding: 11px 15px; border: 1px solid #5c8e90; border-radius: 6px; background: #2b5959; color: #efffff; font: inherit; font-size: 13px; }
+.upkeep-actions button { min-height: 44px; padding: 11px 15px; border: 2px solid; border-color: #fff #555 #555 #fff; border-radius: 0; background: #aaa; color: #222; font: inherit; font-size: 13px; }
 .upkeep-actions button:disabled { opacity: .5; cursor: wait; }
-#resource-guide { margin: 16px 0 0; padding: 12px; border: 1px solid #3e5668; border-radius: 7px; color: #adc3cd; font-size: 12px; line-height: 1.6; text-align: left; }
+#resource-guide { margin: 16px 0 0; padding: 12px; border: 2px solid; border-color: #999 #eee #eee #999; border-radius: 0; color: #424242; font-size: 12px; line-height: 1.6; text-align: left; }
 
-.structure-strength { position: fixed; z-index: 2; left: 50%; bottom: 195px; transform: translateX(-50%); display: grid; gap: 7px; min-width: 205px; max-width: calc(100vw - 32px); padding: 10px 13px; border: 1px solid #67869588; border-radius: 6px; background: #132534ed; color: #daecee; font-size: 12px; text-align: center; pointer-events: none; }
+.structure-strength { position: fixed; z-index: 2; left: 50%; bottom: 195px; transform: translateX(-50%); display: grid; gap: 7px; min-width: 205px; max-width: calc(100vw - 32px); padding: 10px 13px; border: 1px solid #82936c88; border-radius: 6px; background: #132b25ed; color: #eff3e4; font-size: 12px; text-align: center; pointer-events: none; }
 .structure-strength[data-damaged='true'] { border-color: #c8a165; color: #f1d9ac; }
-.structure-strength meter { display: block; width: 100%; height: 9px; border: 0; background: #0b1721; accent-color: #85c9b6; }
-.structure-strength meter::-webkit-meter-bar { background: #0b1721; border: 0; border-radius: 3px; }
-.structure-strength meter::-webkit-meter-optimum-value { background: #85c9b6; border-radius: 3px; }
+.structure-strength meter { display: block; width: 100%; height: 9px; border: 0; background: #172218; accent-color: #a6c47c; }
+.structure-strength meter::-webkit-meter-bar { background: #172218; border: 0; border-radius: 3px; }
+.structure-strength meter::-webkit-meter-optimum-value { background: #a6c47c; border-radius: 3px; }
 .structure-strength[data-damaged='true'] meter::-webkit-meter-optimum-value { background: #d8b474; }
-.structure-strength meter::-moz-meter-bar { background: #85c9b6; }
+.structure-strength meter::-moz-meter-bar { background: #a6c47c; }
 .touch-mode .structure-strength { bottom: 210px; }
 
 .listener-cue { position: fixed; z-index: 2; left: 50%; top: calc(115px + env(safe-area-inset-top)); transform: translateX(-50%); max-width: calc(100vw - 32px); padding: 8px 13px; border: 1px solid #8e9b9e66; border-radius: 5px; background: #0d1b24df; color: #c9d6da; font-size: 13px; text-align: center; pointer-events: none; }
@@ -533,3 +511,45 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
 .rescue-button { position: fixed; z-index: 5; left: 50%; bottom: calc(132px + env(safe-area-inset-bottom)); transform: translateX(-50%); max-width: calc(100vw - 32px); padding: 12px 18px; border: 1px solid #91b6b0; border-radius: 5px; background: #18352fee; color: #eef9f4; touch-action: none; user-select: none; }
 .downed .ward-hint, .downed .structure-strength { display: none; }
 @media (prefers-reduced-motion: reduce) { #encounter-shade { transition: none; } }
+
+.audio-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 18px; text-align: left; }
+.audio-controls label { display: grid; grid-template-columns: 1fr auto; gap: 8px; color: #294b39; font-size: 13px; }
+.audio-controls output { font-variant-numeric: tabular-nums; color: #52664e; }
+.audio-controls input[type='range'] { grid-column: 1 / -1; width: 100%; min-height: 28px; margin: 0; accent-color: #47683b; }
+.audio-controls .music-switch { grid-column: 1 / -1; display: flex; align-items: center; gap: 9px; min-height: 32px; }
+.music-switch input { width: 18px; height: 18px; accent-color: #47683b; }
+.audio-credits { margin-top: 16px; text-align: left; font-size: 12px; color: #4e6258; }
+.audio-credits summary { cursor: pointer; padding: 8px 0; }
+.audio-credits a { color: #294b39; text-decoration: underline; }
+@media (max-width: 450px) { .audio-controls { grid-template-columns: 1fr; } }
+
+@media (max-width: 700px) {
+  .crafting-layout { grid-template-columns: minmax(0, 1fr) 215px; gap: 14px; }
+  .crafting-station { gap: 10px; }
+  .crafting-grid { grid-template-columns: repeat(3, 42px); }
+  .inventory-crafting .inventory-slot { height: 42px; min-height: 42px; }
+  .inventory-crafting .crafting-result { width: 52px; height: 52px; }
+  .crafting-arrow { font-size: 28px; }
+}
+@media (max-width: 550px) {
+  .gather-inventory .inventory-card { padding: 12px; }
+  .crafting-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .crafting-workbench { width: 100%; }
+  .crafting-station { gap: 20px; }
+  .crafting-grid { grid-template-columns: repeat(3, 46px); }
+  .inventory-crafting .inventory-slot { height: 46px; }
+  .crafting-tools { justify-content: center; }
+  .crafting-tools span { max-width: none; }
+  .inventory-recipes { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 3px; }
+  .inventory-crafting .inventory-recipes button { height: 36px; padding: 2px; }
+  .inventory-recipes .block-icon { width: 23px; height: 23px; }
+  .gather-inventory .inventory-slot { height: 40px; min-height: 34px; }
+  .gather-inventory .inventory-slot .block-icon { width: 22px; height: 22px; }
+  .gather-inventory .crafting-grid .inventory-slot { height: 46px; }
+  .gather-inventory .crafting-result { width: 56px; height: 56px; }
+  .gather-inventory .crafting-result .block-icon { width: 34px; height: 34px; }
+}
+@media (max-width: 360px) {
+  .crafting-station { gap: 12px; }
+  .crafting-tools span { flex-basis: 100%; text-align: center; }
+}

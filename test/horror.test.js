@@ -144,7 +144,8 @@ test('last disconnect checkpoints exact time and reconnect/restart preserves rep
   const again = await connect(game, player.token); sockets.push(again.socket);
   assert.equal(again.welcome.clock.phase, paused.clock.phase);
   assert.equal(again.welcome.clock.elapsedSeconds, paused.clock.elapsedSeconds);
-  assert.equal(again.welcome.inventory.stacks[0].count, 1);
+  assert.equal(again.welcome.inventory.stacks.some(Boolean), false);
+  assert.equal(again.welcome.drops[0].count, 1); assert.deepEqual(again.welcome.drops, paused.drops);
   assert.equal(game.room.world.get(cell.x, cell.y, cell.z), AIR);
   assert.deepEqual(again.welcome.horror, paused.horror);
 });

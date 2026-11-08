@@ -6,7 +6,7 @@ import { EditHistory } from '../src/history.js';
 import { slabPlacement } from '../src/slabs.js';
 import { buildTerrainGeometry } from '../src/terrain.js';
 import { faceTile, TILES, tileUVs } from '../src/textures.js';
-import { synthesizeSound } from '../src/sound.js';
+import { soundRecipe } from '../src/sound.js';
 
 function ground() {
   const world = new World({ generate: false });
@@ -163,7 +163,7 @@ test('both half shapes pick at their real surfaces and preserve full-block textu
     assert.equal(faceTile(half, 1), TILES.PLANKS);
     geometry.dispose(); material.dispose();
   }
-  assert.deepEqual(synthesizeSound(UPPER_SLAB, 'step', 44100), synthesizeSound(SLAB, 'step', 44100));
+  assert.deepEqual(soundRecipe(UPPER_SLAB, 'step'), soundRecipe(SLAB, 'step'));
 });
 
 test('partial neighbors do not hide exposed tops, undersides, or cube faces', () => {

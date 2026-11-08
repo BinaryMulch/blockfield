@@ -1,3 +1,4 @@
+import { PRESSURE_INTERVAL } from './listener-pressure.js';
 import { HEIGHT, SIZE, WATER, LEAVES, EYE_HEIGHT, isSolid, isSupport, isSlab, blockBounds, doorState } from './world.js';
 import { loadedBlock, traceBarriers } from './perception.js';
 import { TensionDirector, validDirector } from './director.js';
@@ -66,7 +67,7 @@ export class ListenerSystem {
     return { state: this.entity.state, activity: this.activity, decision: this.decision, crouched: this.entity.crouched, pathNodes: this.path.length,
       noiseEvents: this.noises.length, expandedNodes: this.lastNodes, blockReads: this.lastReads, perceptionSteps: this.lastSenseSteps, candidates: this.lastCandidates,
       evidence: fact ? `${fact.kind} · ${Math.floor(now - fact.at)}s old · ${Math.round(this.memory.confidence(fact, now) * 100)}%` : 'None',
-      failedRoutes: this.memory.state.failed.length, scores: this.scores, director: this.director.diagnostics(now) };
+      position: { x: this.entity.x, y: this.entity.y, z: this.entity.z }, target: this.entity.target, barrier: this.pressure?.diagnostics(now), failedRoutes: this.memory.state.failed.length, scores: this.scores, director: this.director.diagnostics(now) };
   }
   trace(a, b, options) { const result = traceBarriers(this.world, a, b, options); this.lastSenseSteps += result.steps; return result; }
   inView(p, observer, eyeHeight = EYE_HEIGHT) {
@@ -420,7 +421,7 @@ export class ListenerSystem {
     const candidates = [
       { action: 'stalk', allowed: permission.pursue && (!!seen || recentSight), score: .95, reason: 'Confirmed discovery; pursuit permitted' },
       { action: 'shadow', allowed: !!seen && permission.presence, score: .78, reason: 'Watching a visible player while tension builds' },
-      { action: 'pressure', allowed: !!barrier && permission.breach && confidence > .15, score: .9 - (barrier?.detour ? .25 : 0), reason: 'Nearby unprotected barrier; breach allowance available' },
+      { action: 'pressure', allowed: !!barrier && !barrier.detour && permission.breach && confidence > .15, score: 1.15, reason: 'Nearby unprotected barrier; breach allowance available' },
       { action: 'investigate', allowed: !!fact && fact.kind === 'sound' && !this.memory.searched(fact.point) && !this.memory.blocked(fact.point, now), score: .55 + confidence * .3, reason: 'Following remembered sound' },
       { action: 'search', allowed: !!fact && !seen, score: .5 + confidence * .2, reason: 'Searching around last evidence; player location unknown' },
       { action: 'listen', allowed: true, score: .12, reason: 'Pausing to listen for fresh evidence' },
@@ -504,7 +505,7 @@ export class ListenerSystem {
     const barrier = fact && this.pressure?.candidate(e, fact.point);
     if (barrier && now >= m.decideAt) {
       const detour = this.route(fact.point, e, { requireComplete: true }), end = detour.at(-1);
-      barrier.detour = !!end && goalDistance(end, fact.point) < 2 && detour.length / 1.6 < barrier.hits * 3;
+      barrier.detour = !!end && goalDistance(end, fact.point) < 2 && detour.length / 1.6 < barrier.hits * PRESSURE_INTERVAL;
       if (barrier.detour) { this.path = detour; this.pathAt = now + 1; }
     }
     if (now >= m.decideAt || e.state === 'pressure' && !permission.breach || e.state === 'stalk' && !permission.pursue) this.choose(seen, fact, barrier, now);

@@ -75,6 +75,8 @@ test('eviction retains builds and removals, regenerates untouched terrain, and b
 test('cold history can regenerate a chunk and preserves conflict lineage after eviction', () => {
   const world = new ChunkWorld({ seed: 'history' }), room = new GameRoom({ world, gameMode: 'horror' });
   const a = room.join('Alice'), b = room.join('Bob');
+  // Exercise internal undo lineage independently of Horror's ground-item rules.
+  a.history.drops = b.history.drops = null;
   a.inventory.stacks[0] = { block: LANTERN, count: 1 };
   const command = (player, method, args = {}) => room.command(player.id, { method, slot: 0, ...args, ...(args.x !== undefined ? { expected: room.expected(args.x, args.y, args.z) } : {}) });
   const cell = { x: 255, y: 8, z: 255 };

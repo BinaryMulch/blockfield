@@ -82,7 +82,7 @@ function buildGeometry(world, mode, { minX = 0, maxX = SIZE, minZ = 0, maxZ = SI
             const longX = bounds.maxX - bounds.minX > 0.5;
             const broadDoorFace = door && (longX ? normal[2] !== 0 : normal[0] !== 0);
             const tile = isLantern(block) ? (partIndex === 0 && normal[1] === 0 ? faceTile(block, 0) : TILES.LANTERN_TOP)
-              : door && !broadDoorFace ? TILES.CABINET_SIDE : faceTile(block, normal[1], normal[0], normal[2]);
+              : door && !broadDoorFace ? TILES.CHEST_SIDE : faceTile(block, normal[1], normal[0], normal[2]);
             const faceUVs = tileUVs(tile);
             const offset = positions.length / 3;
             for (let corner = 0; corner < corners.length; corner++) {

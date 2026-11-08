@@ -18,28 +18,36 @@ export const RED_FLOWER = 30;
 export const YELLOW_FLOWER = 31;
 export const DAISY = 32;
 export const WARD_LANTERN = 33;
-export const CONCRETE = 34;
-export const REINFORCED_PANEL = 35;
-export const STORAGE_CABINET = 36;
-export const SECURITY_DOOR = 37; // States occupy IDs 37–52.
+export const STONE_BRICKS = 34;
+export const BRACED_TIMBER = 35;
+export const WOODEN_CHEST = 36;
+export const BRACED_DOOR = 37; // States occupy IDs 37–52.
 // Keep the original cabinet ID facing +Z. Other orientations use IDs 53–55.
-const CABINET_STATES = Object.freeze([STORAGE_CABINET, 53, 54, 55]);
+const CABINET_STATES = Object.freeze([WOODEN_CHEST, 53, 54, 55]);
 export const SAPLING = 56;
 export const YOUNG_SAPLING = 57;
 export const TALL_SAPLING = 58;
 export const SALVAGE_CRATE = 59;
 // Inventory-only items never enter terrain data.
-export const SCRAP = 60;
-export const BIOFUEL = 61;
-export const REPAIR_TOOL = 62;
+export const WOODEN_PEGS = 60;
+export const CHARCOAL = 61;
+export const STONE_HAMMER = 62;
+// Legacy exported names retain their numeric save/network IDs.
+export const CONCRETE = STONE_BRICKS;
+export const REINFORCED_PANEL = BRACED_TIMBER;
+export const STORAGE_CABINET = WOODEN_CHEST;
+export const SECURITY_DOOR = BRACED_DOOR;
+export const SCRAP = WOODEN_PEGS;
+export const BIOFUEL = CHARCOAL;
+export const REPAIR_TOOL = STONE_HAMMER;
 export const FLOWER_TYPES = [RED_FLOWER, YELLOW_FLOWER, DAISY];
 export const FLOWER_COLORS = {
   [RED_FLOWER]: { petals: 0xe8616c, center: 0xffcf68 },
   [YELLOW_FLOWER]: { petals: 0xffd65c, center: 0xb66c36 },
   [DAISY]: { petals: 0xfffae5, center: 0xf5b83b },
 };
-export const BUILD_BLOCKS = [GRASS, DIRT, STONE, WOOD, LEAVES, SAND, PLANKS, BRICKS, GLASS, DOOR, LANTERN, WARD_LANTERN, SLAB, RED_FLOWER, CONCRETE, REINFORCED_PANEL, STORAGE_CABINET, SECURITY_DOOR];
-const BLOCK_TYPES = new Set([AIR, WATER, UPPER_SLAB, ...FLOWER_TYPES, ...BUILD_BLOCKS, ...CABINET_STATES, SAPLING, YOUNG_SAPLING, TALL_SAPLING, SALVAGE_CRATE, ...[DOOR, SECURITY_DOOR].flatMap(base => Array.from({ length: 16 }, (_, i) => base + i))]);
+export const BUILD_BLOCKS = [GRASS, DIRT, STONE, WOOD, LEAVES, SAND, PLANKS, BRICKS, GLASS, DOOR, LANTERN, WARD_LANTERN, SLAB, RED_FLOWER, STONE_BRICKS, BRACED_TIMBER, WOODEN_CHEST, BRACED_DOOR];
+const BLOCK_TYPES = new Set([AIR, WATER, UPPER_SLAB, ...FLOWER_TYPES, ...BUILD_BLOCKS, ...CABINET_STATES, SAPLING, YOUNG_SAPLING, TALL_SAPLING, SALVAGE_CRATE, ...[DOOR, BRACED_DOOR].flatMap(base => Array.from({ length: 16 }, (_, i) => base + i))]);
 export const SIZE = 64;
 export const HEIGHT = 24;
 const SPAWN_X = Math.floor(SIZE / 2);
@@ -54,8 +62,8 @@ export const isPlant = block => isFlower(block) || isSapling(block);
 export const isFlower = block => FLOWER_TYPES.includes(block);
 export const isFlowerSoil = block => block === GRASS || block === DIRT;
 export const isBlock = block => BLOCK_TYPES.has(block);
-export const isDoor = block => Number.isInteger(block) && (block >= DOOR && block < DOOR + 16 || block >= SECURITY_DOOR && block < SECURITY_DOOR + 16);
-export const doorType = block => block >= SECURITY_DOOR && block < SECURITY_DOOR + 16 ? SECURITY_DOOR : DOOR;
+export const isDoor = block => Number.isInteger(block) && (block >= DOOR && block < DOOR + 16 || block >= BRACED_DOOR && block < BRACED_DOOR + 16);
+export const doorType = block => block >= BRACED_DOOR && block < BRACED_DOOR + 16 ? BRACED_DOOR : DOOR;
 export const isSlab = block => block === SLAB || block === UPPER_SLAB;
 export const isLantern = block => block === LANTERN || block === WARD_LANTERN;
 export const isCabinet = block => CABINET_STATES.includes(block);
@@ -63,7 +71,7 @@ export const cabinetFacing = block => CABINET_STATES.indexOf(block);
 // Front directions follow the door convention: +Z, -X, -Z, +X.
 export const cabinetBlock = facing => CABINET_STATES[(facing % 4 + 4) % 4];
 export const cabinetBlockFromYaw = yaw => cabinetBlock(Math.round(-yaw / (Math.PI / 2)));
-export const buildBlock = block => isDoor(block) ? doorType(block) : isSlab(block) ? SLAB : isCabinet(block) ? STORAGE_CABINET : isSapling(block) ? SAPLING : block;
+export const buildBlock = block => isDoor(block) ? doorType(block) : isSlab(block) ? SLAB : isCabinet(block) ? WOODEN_CHEST : isSapling(block) ? SAPLING : block;
 export const isOpaque = block => isSolid(block) && block !== GLASS && !isLantern(block) && !isDoor(block) && !isSlab(block);
 // Fixtures sit on a cell's upper surface, which lower slabs do not reach.
 export const isSupport = block => isSolid(block) && !isLantern(block) && block !== SLAB && !isDoor(block);

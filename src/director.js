@@ -1,8 +1,8 @@
 export const DIRECTOR_INTERVAL = 1;
 export const DIRECTOR_PHASES = ['quiet', 'unease', 'pressure', 'peak', 'release'];
 export const MAX_DIRECTOR_PLAYERS = 64;
-export const ENCOUNTER_BUDGET = 20;
-export const MAX_PRESSURE_HITS = 6;
+export const ENCOUNTER_BUDGET = 28;
+export const MAX_PRESSURE_HITS = 12;
 const clamp = n => Math.max(0, Math.min(1, n));
 const time = n => Number.isFinite(n) && n >= 0 && n <= Number.MAX_SAFE_INTEGER;
 const keyOf = p => p.key || p.id;
@@ -53,7 +53,7 @@ export class TensionDirector {
     const s = this.state, cost = kind === 'burst' ? 4 : kind === 'hit' ? 2 : 0;
     if (s.budget < cost || kind === 'hit' && s.hits >= MAX_PRESSURE_HITS) return false;
     s.budget -= cost; if (kind === 'hit') s.hits++;
-    if (key) this.player(key, now).pressure = Math.min(1, this.player(key, now).pressure + (kind === 'hit' ? .08 : .12));
+    if (key) this.player(key, now).pressure = Math.min(1, this.player(key, now).pressure + (kind === 'hit' ? .045 : .12));
     return true;
   }
   knockdown(key, now) {
@@ -101,6 +101,7 @@ export class TensionDirector {
   diagnostics(now) {
     const s = this.state;
     return { phase: s.phase, reason: s.reason, budget: s.budget, hits: s.hits, maxPressure: Math.round(Math.max(0, ...s.players.map(p => p.pressure)) * 100),
-      quietSeconds: Math.max(0, Math.ceil(s.quietUntil - now)), updates: this.updates };
+      quietSeconds: Math.max(0, Math.ceil(s.quietUntil - now)), updates: this.updates, phaseSeconds: Math.max(0, now - s.phaseAt),
+      maxHits: MAX_PRESSURE_HITS, maxBudget: ENCOUNTER_BUDGET, permissions: this.permissions(now), history: structuredClone(s.history.slice(-6)) };
   }
 }

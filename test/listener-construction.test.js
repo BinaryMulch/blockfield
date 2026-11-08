@@ -75,7 +75,11 @@ test('shared floor removal is allowed and the authoritative creature falls onto 
   for (let x = 250; x <= 256; x++) for (let z = 252; z <= 256; z++) for (let y = 0; y < 24; y++) room.world.set(x, y, z, y === 0 || y === 7 ? STONE : AIR);
   Object.assign(player.pose, { x: 254.5, y: 8.01, z: 254.5 });
   Object.assign(room.listener.entity, { state: 'investigate', x: 252.5, y: 8.01, z: 254.5, encounterUntil: 275 });
-  const result = room.command(player.id, { method: 'edit', x: 252, y: 7, z: 254, block: AIR, expected: room.expected(252, 7, 254) });
+  let result;
+  for (let hit = 0; hit < 3; hit++) {
+    room.clock.elapsedSeconds += .31;
+    result = room.command(player.id, { method: 'edit', x: 252, y: 7, z: 254, block: AIR, expected: room.expected(252, 7, 254) });
+  }
   assert.equal(result.ok, true); assert.equal(room.world.get(252, 7, 254), AIR);
   room.advance(.2); assert.ok(room.listener.entity.y < 8.01);
   for (let i = 0; i < 10; i++) room.advance(.2);

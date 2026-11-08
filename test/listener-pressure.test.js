@@ -5,6 +5,7 @@ import { ListenerPressure } from '../src/listener-pressure.js';
 import { Infrastructure } from '../src/infrastructure.js';
 import { ListenerSystem } from '../src/listener.js';
 import { loadedBlock, traceBarriers } from '../src/perception.js';
+import { TensionDirector, MAX_PRESSURE_HITS } from '../src/director.js';
 
 function fixture() {
   const world = new World({ generate: false });
@@ -44,4 +45,21 @@ test('a pressure trace stops safely when its shared read budget runs out', () =>
   const candidate = s.pressure.candidate(s.entity, s.target, { read: (x, y, z) => ++reads <= 1 ? loadedBlock(s.world, x, y, z) : undefined });
   assert.equal(candidate, null); assert.equal(reads, 2);
   assert.equal(s.infrastructure.damage.size, 0); assert.equal(s.world.get(20, 1, 20), AIR);
+});
+
+test('one encounter can breach a full-height unprotected timber wall with eight brisk bounded strikes', () => {
+  const s = fixture(), director = new TensionDirector({ now: 200 });
+  director.setPhase('pressure', 200, 'Breach test');
+  const entity = { x: 20.5, y: 1.01, z: 20.5 }, target = { x: 24.5, y: 1.01, z: 20.5 };
+  let now = 200, hits = 0;
+  const pressure = new ListenerPressure(s.world, { infrastructure: s.infrastructure, shelters: { status: () => ({ state: 'exposed' }) },
+    canHit: () => director.permissions(now).breach, onHit: () => { hits++; director.spend('hit', now, 'builder'); } });
+  for (let i = 0; i <= 110 && s.world.get(21, 2, 20) !== AIR; i++) {
+    now = 200 + i * .1;
+    director.advance(now, [{ id: 'builder', key: 'builder', vulnerable: true, exposed: true, distance: 4 }], { night: true, active: true, pressing: true, evidence: true });
+    pressure.advance(entity, target, now);
+  }
+  assert.equal(s.world.get(21, 1, 20), AIR); assert.equal(s.world.get(21, 2, 20), AIR);
+  assert.equal(hits, 8); assert.ok(hits <= MAX_PRESSURE_HITS); assert.ok(now <= 211);
+  assert.ok(director.state.budget >= 0); assert.equal(s.infrastructure.damage.size, 0);
 });

@@ -16,7 +16,7 @@ npm start
 
 Open `http://localhost:6200/` on the host, or `http://VM-IP:6200/` from another computer. Replace `VM-IP` with the VM's address. Allow TCP 6200 through the VM firewall for your home network; the Mac must be able to reach the VM.
 
-Choose **Single player** for a private browser world or **Multiplayer** for the server's shared world. `http://VM-IP:6200/?join=1` joins multiplayer directly. All worlds use Horror mode. New worlds begin near a damaged modern maintenance outpost with a shared storage cabinet and nearby renewable salvage sites. Create a new world to see the new starter layout; existing structures retain their shapes and receive the updated 32×32 textures.
+Choose **Single player** for a private browser world or **Multiplayer** for the server's shared world. `http://VM-IP:6200/?join=1` joins multiplayer directly. All worlds use Horror mode. New worlds begin near a damaged woodland cabin with a shared wooden chest and nearby renewable salvage sites. Existing worlds receive the classic 16×16 textures automatically; structures and survival progress are preserved.
 
 Keep the terminal open while hosting manually. **Ctrl+C** saves and stops the server. For local development, `npm run dev` serves live code changes. On a Mac, the included **Play Blockfield.command** launcher also starts development hosting.
 

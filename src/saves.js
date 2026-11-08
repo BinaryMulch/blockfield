@@ -1,5 +1,5 @@
 import { HEIGHT, buildBlock, isBlock, isCabinet, SAPLING, WARD_LANTERN, SALVAGE_CRATE } from './world.js';
-import { CHUNK_SIZE, WORLD_SIZE, GENERATOR_VERSION } from './generation.js';
+import { CHUNK_SIZE, WORLD_SIZE, GENERATOR_VERSION, generateChunk } from './generation.js';
 import { validInventory, GAME_MODES } from './inventory.js';
 import { validDrops } from './drops.js';
 import { GAME_MODE, validHorrorState } from './horror.js';
@@ -68,18 +68,25 @@ export function validateSave(save) {
   if (save.saveRevision !== undefined && (!Number.isSafeInteger(save.saveRevision) || save.saveRevision < 0)) throw new SaveError('The saved world revision is invalid.');
   if (save.drops !== undefined && (!['gather', GAME_MODE].includes(save.gameMode) || !validDrops(save.drops, metadata.size))) throw new SaveError('The saved dropped items are invalid.');
   if (!validInfrastructure(save.containers, save.construction, metadata.size)) throw new SaveError('The saved storage or construction is invalid.');
-  const edits = new Map(save.edits), attachedChunks = new Map();
-  const editedBlock = c => {
-    const key = `${Math.floor(c.x / CHUNK_SIZE)},${Math.floor(c.z / CHUNK_SIZE)}`;
+  const edits = new Map(save.edits), attachedChunks = new Map(), generatedChunks = new Map();
+  const savedBlock = c => {
+    const cx = Math.floor(c.x / CHUNK_SIZE), cz = Math.floor(c.z / CHUNK_SIZE), key = `${cx},${cz}`;
     // Index only chunks with stored supplies or damage, without copying every
     // edited cell in the world on each save checkpoint.
     if (!attachedChunks.has(key)) attachedChunks.set(key, new Map(edits.get(key) || []));
-    return attachedChunks.get(key).get(c.x % CHUNK_SIZE + c.z % CHUNK_SIZE * CHUNK_SIZE + c.y * CHUNK_SIZE * CHUNK_SIZE);
+    const index = c.x % CHUNK_SIZE + c.z % CHUNK_SIZE * CHUNK_SIZE + c.y * CHUNK_SIZE * CHUNK_SIZE;
+    const cells = attachedChunks.get(key);
+    if (cells.has(index)) return cells.get(index);
+    // Mining can damage a generated tree or stone before any block edit exists.
+    // Resolve its original block from the saved seed, caching only chunks needed
+    // by attached records. Explicit edits (including AIR) always take precedence.
+    if (!generatedChunks.has(key)) generatedChunks.set(key, generateChunk(metadata.seed, cx, cz, metadata.size));
+    return generatedChunks.get(key)[index];
   };
-  if ((save.containers || []).some(c => !isCabinet(editedBlock(c))) || (save.construction || []).some(d => buildBlock(editedBlock(d)) !== d.block)) throw new SaveError('Stored supplies or damage do not match the world blocks.');
+  if ((save.containers || []).some(c => !isCabinet(savedBlock(c))) || (save.construction || []).some(d => buildBlock(savedBlock(d)) !== d.block)) throw new SaveError('Stored supplies or damage do not match the world blocks.');
   if (save.upkeep?.version !== undefined && save.upkeep.version !== 1) throw new SaveError('This upkeep state needs a newer game version.', 'SAVE_INCOMPATIBLE');
   if (!validUpkeep(save.upkeep, metadata.size, save.clock.elapsedSeconds ?? 0)) throw new SaveError('The saved resource upkeep is invalid.');
-  if (save.upkeep && (save.upkeep.plants.some(p => editedBlock(p) !== SAPLING + p.stage) || save.upkeep.wards.some(p => editedBlock(p) !== WARD_LANTERN) || save.upkeep.salvage.some(p => editedBlock(p) !== SALVAGE_CRATE))) throw new SaveError('Saved upkeep does not match world blocks.');
+  if (save.upkeep && (save.upkeep.plants.some(p => savedBlock(p) !== SAPLING + p.stage) || save.upkeep.wards.some(p => savedBlock(p) !== WARD_LANTERN) || save.upkeep.salvage.some(p => savedBlock(p) !== SALVAGE_CRATE))) throw new SaveError('Saved upkeep does not match world blocks.');
   if (save.listener?.version !== undefined && save.listener.version !== 1) throw new SaveError('This Listener needs a newer game version.', 'SAVE_INCOMPATIBLE');
   if (!validListener(save.listener, metadata.size, save.clock.elapsedSeconds ?? 0)) throw new SaveError('The saved Listener is invalid.');
   if (!validEncounters(save.encounters, metadata.size)) throw new SaveError('The saved encounter state is invalid.');

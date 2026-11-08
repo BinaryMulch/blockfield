@@ -1,8 +1,10 @@
-import { AIR, DIRT, GRASS, CONCRETE, REINFORCED_PANEL, STORAGE_CABINET, SALVAGE_CRATE, LANTERN, GLASS, WARD_LANTERN, HEIGHT } from './world.js';
+import { AIR, DIRT, GRASS, STONE_BRICKS, BRACED_TIMBER, WOODEN_CHEST, SALVAGE_CRATE, LANTERN, GLASS, WARD_LANTERN, HEIGHT } from './world.js';
 
 import { terrainColumn } from './generation.js';
 
 export const GAME_MODE = 'horror';
+const LEGACY_SITE_NAMES = { 'Maintenance yard': 'Woodcutter’s camp', 'Roadside station': 'Wayside camp', 'Abandoned worksite': 'Old quarry' };
+export const supplySiteName = name => Object.hasOwn(LEGACY_SITE_NAMES, name) ? LEGACY_SITE_NAMES[name] : name;
 export const RESTRICTED_COMMANDS = new Set(['time', 'undo', 'redo', 'fly']);
 
 // An authored overlay, applied once to new worlds. Terrain generation stays at
@@ -16,31 +18,31 @@ export function buildStarterCabin(world) {
     for (let y = 1; y < HEIGHT; y++) write(dx, y, dz, y < floor ? DIRT : y === floor ? GRASS : AIR);
   }
   for (let dz = 0; dz <= 6; dz++) for (let dx = 0; dx <= 6; dx++) {
-    write(dx, floor, dz, CONCRETE);
+    write(dx, floor, dz, STONE_BRICKS);
     for (let y = floor + 1; y <= floor + 3; y++) {
       const edge = dx === 0 || dx === 6 || dz === 0 || dz === 6;
       const corner = (dx === 0 || dx === 6) && (dz === 0 || dz === 6);
       const doorway = dz === 6 && dx === 3 && y <= floor + 2;
       const damage = dx === 6 && dz >= 3 && dz <= 4 && y <= floor + 2;
       const window = y === floor + 2 && (dx === 2 || dx === 4) && dz === 0;
-      if (edge && !doorway && !damage) write(dx, y, dz, corner ? CONCRETE : window ? GLASS : REINFORCED_PANEL);
+      if (edge && !doorway && !damage) write(dx, y, dz, corner ? STONE_BRICKS : window ? GLASS : BRACED_TIMBER);
     }
     // A missing roof patch is an obvious, reachable repair project.
-    if (!(dx >= 4 && dz >= 3 && dz <= 4)) write(dx, floor + 4, dz, REINFORCED_PANEL);
+    if (!(dx >= 4 && dz >= 3 && dz <= 4)) write(dx, floor + 4, dz, BRACED_TIMBER);
   }
   write(1, floor + 1, 1, WARD_LANTERN);
-  write(5, floor + 1, 1, STORAGE_CABINET);
+  write(5, floor + 1, 1, WOODEN_CHEST);
   const salvage = [];
-  for (const [dx, dz, name] of [[-28, 14, 'Maintenance yard'], [30, 14, 'Roadside station'], [8, -32, 'Abandoned worksite']]) {
+  for (const [dx, dz, name] of [[-28, 14, 'Woodcutter’s camp'], [30, 14, 'Wayside camp'], [8, -32, 'Old quarry']]) {
     const sx = Math.floor(world.size / 2) + dx, sz = Math.floor(world.size / 2) + dz;
     const sy = terrainColumn(world.seed, sx, sz, world.size).top;
     for (let oz = -2; oz <= 2; oz++) for (let ox = -2; ox <= 2; ox++) {
-      for (let h = sy; h < HEIGHT; h++) world.set(sx + ox, h, sz + oz, h === sy ? CONCRETE : AIR);
+      for (let h = sy; h < HEIGHT; h++) world.set(sx + ox, h, sz + oz, h === sy ? STONE_BRICKS : AIR);
     }
     world.set(sx, sy + 1, sz, SALVAGE_CRATE);
-    world.set(sx - 2, sy + 1, sz - 2, CONCRETE);
+    world.set(sx - 2, sy + 1, sz - 2, STONE_BRICKS);
     world.set(sx - 2, sy + 2, sz - 2, LANTERN);
-    world.set(sx + 2, sy + 1, sz - 2, REINFORCED_PANEL);
+    world.set(sx + 2, sy + 1, sz - 2, BRACED_TIMBER);
     world.set(sx + 2, sy + 2, sz - 2, GLASS);
     salvage.push({ x: sx, y: sy + 1, z: sz, name });
   }

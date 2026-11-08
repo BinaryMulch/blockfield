@@ -120,6 +120,7 @@ export class GameRoom {
   drainEncounters() { const events = this.encounterEvents.splice(0); this.encounters.dirty = false; return events; }
   recordWorldChanges(changes) {
     if (!changes.length) return;
+    this.drops.settle(this.world);
     this.revision++;
     for (const c of changes) this.versions.set(indexOf(c.x, c.y, c.z), this.revision);
     for (const k of new Set(changes.map(c => chunkKey(Math.floor(c.x / 16), Math.floor(c.z / 16))))) this.chunkRevisions.set(k, (this.chunkRevisions.get(k) || 0) + 1);
@@ -148,7 +149,7 @@ export class GameRoom {
     Object.assign(pose, { yaw: cabin ? Math.atan2(pose.x - cabin.x - 3.5, pose.z - cabin.z - 3.5) : 0, pitch: -0.12, active: false });
     const player = { id, name: cleanName(name), color: COLORS[this.colorIndex++ % COLORS.length], pose, history: new SharedHistory(this) };
     {
-      player.token = token; player.inventory = this.profiles.get(token); player.history.inventory = player.inventory;
+      player.token = token; player.inventory = this.profiles.get(token); player.history.inventory = player.inventory; player.history.drops = this.drops;
     }
     player.history.creature = this.listener;
     player.history.infrastructure = this.infrastructure; player.history.upkeep = this.upkeep; player.history.actorId = id;
@@ -192,6 +193,7 @@ export class GameRoom {
     const players = this.encounterPlayers();
     this.encounters.advance(players);
     this.listener.advance(seconds, players.map(p => ({ ...p, vulnerable: this.encounters.vulnerable(p), downed: this.encounters.downed(p) })));
+    this.drops.settle(this.world);
   }
 
   processUpkeep() {

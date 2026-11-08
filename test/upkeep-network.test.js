@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { WebSocket } from 'ws';
 import { createGameServer } from '../server.js';
 import { PROTOCOL } from '../server/room.js';
-import { AIR, SAPLING, SCRAP, BIOFUEL, REPAIR_TOOL } from '../src/world.js';
+import { AIR, SAPLING, PLANKS, SCRAP, BIOFUEL, REPAIR_TOOL } from '../src/world.js';
 import { FUEL_SECONDS, WARD_CAPACITY, GROWTH_STAGE_SECONDS } from '../src/upkeep.js';
 import { LocalSession } from '../src/session.js';
 import { ChunkWorld } from '../src/chunks.js';
@@ -41,10 +41,10 @@ test('shared salvage, repair, and fuel races conserve supplies; growth checkpoin
   assert.equal(players.reduce((n, p) => n + p.inventory.count(SCRAP), 0), 2);
   const panel = { x: site.x + 2, y: site.y, z: site.z - 2 };
   assert.equal((await a.request('edit', { ...panel, block: AIR, expected: game.room.expected(panel.x, panel.y, panel.z) })).remaining, 3);
-  for (const player of players) { player.inventory.stacks[0] = { block: REPAIR_TOOL, count: 1 }; player.inventory.stacks[1] = { block: SCRAP, count: 1 }; }
+  for (const player of players) { player.inventory.stacks[0] = { block: REPAIR_TOOL, count: 1 }; player.inventory.stacks[1] = { block: PLANKS, count: 1 }; }
   results = await Promise.all([a.request('repair', panel), b.request('repair', panel)]);
   assert.equal(results.filter(r => r.ok).length, 1); assert.equal(results.find(r => !r.ok).reason, 'undamaged');
-  assert.equal(players.reduce((n, p) => n + p.inventory.count(SCRAP), 0), 1); assert.equal(game.room.infrastructure.damage.size, 0);
+  assert.equal(players.reduce((n, p) => n + p.inventory.count(PLANKS), 0), 1); assert.equal(game.room.infrastructure.damage.size, 0);
   const cabin = game.room.horror.cabin, ward = { x: cabin.x + 1, y: cabin.y + 1, z: cabin.z + 1 };
   const w = game.room.upkeep.wards.get(`${ward.x},${ward.y},${ward.z}`); w.chargeSeconds = WARD_CAPACITY - FUEL_SECONDS - 1; w.updatedAt = game.room.clock.elapsedSeconds;
   for (const player of players) { Object.assign(player.pose, { x: cabin.x + 3.5, y: ward.y, z: cabin.z + 3.5 }); player.inventory.stacks[2] = { block: BIOFUEL, count: 1 }; }

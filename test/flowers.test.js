@@ -6,7 +6,7 @@ import { EditHistory } from '../src/history.js';
 import { buildTerrainGeometry, buildFlowerGeometry } from '../src/terrain.js';
 import { slabPlacement } from '../src/slabs.js';
 import { BlockParticles } from '../src/particles.js';
-import { synthesizeSound } from '../src/sound.js';
+import { soundRecipe } from '../src/sound.js';
 
 function setup() {
   const world = new World({ generate: false });
@@ -170,7 +170,7 @@ test('flower breaking uses small colored bursts and all varieties share a soft s
     const expected = new THREE.Color(FLOWER_COLORS[block].petals);
     assert.ok(Math.abs(actual.r - expected.r) < 0.000001);
     assert.ok(particles.pool[0].y < 2.64);
-    assert.deepEqual(synthesizeSound(block, 'place', 44100), synthesizeSound(RED_FLOWER, 'place', 44100));
+    assert.deepEqual(soundRecipe(block, 'place'), soundRecipe(RED_FLOWER, 'place'));
     particles.mesh.geometry.dispose(); particles.mesh.material.dispose(); particles.mesh.dispose();
   }
 });

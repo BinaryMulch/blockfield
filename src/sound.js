@@ -1,7 +1,8 @@
 import { WATER, isSupport, blockBounds } from './world.js';
 import { loadedBlock, soundTransmission } from './perception.js';
-import { canPlaySound, canPlayCue, synthesizeSound, synthesizeCue } from './foley.js';
-export { synthesizeSound, synthesizeCue } from './foley.js';
+import { EFFECT_FILES, soundRecipe, cueRecipe, pickupRecipe } from './audio-catalog.js';
+import { AdaptiveMusic } from './music.js';
+export { soundRecipe, cueRecipe } from './audio-catalog.js';
 
 export const SOUND_DISTANCE = 32;
 export const LISTENER_SOUND_DISTANCE = 48;
@@ -76,6 +77,15 @@ export class WaterSoundTracker {
 
 export class GameSounds {
   enabled = true;
+  effectsVolume = .8;
+  musicVolume = .35;
+  musicEnabled = true;
+  effects = null;
+  music = null;
+  loading = new Map();
+  failed = new Map();
+  generation = 0;
+  preloadTask = null;
   context = null;
   master = null;
   buffers = new Map();
@@ -89,18 +99,26 @@ export class GameSounds {
     if (!this.enabled) return;
     try {
       if (!this.context) {
-        this.context = new AudioContext(); this.master = this.context.createGain(); this.master.gain.value = .34;
+        this.context = new AudioContext(); this.master = this.context.createGain(); this.master.gain.value = .8;
+        this.effects = this.context.createGain(); this.effects.gain.value = this.effectsVolume; this.effects.connect(this.master);
+        this.music = new AdaptiveMusic(this.context, this.master);
+        this.music.setEnabled(this.musicEnabled); this.music.setVolume(this.musicVolume);
         const compressor = this.context.createDynamicsCompressor();
         compressor.threshold.value = -16; compressor.knee.value = 12; compressor.ratio.value = 5; compressor.attack.value = .006; compressor.release.value = .2;
         this.master.connect(compressor); compressor.connect(this.context.destination);
       }
-      if (this.context.state !== 'running') await this.context.resume();
+      const resumed = this.context.state !== 'running' ? this.context.resume() : Promise.resolve();
+      if (this.musicEnabled && this.musicVolume) {
+        try { this.music?.unlock(); } catch { this.music?.setEnabled(false); }
+      }
+      await resumed;
+      if (this.enabled) void this.preload();
     } catch { /* Optional audio never prevents playing. */ }
   }
   setEnabled(enabled) {
     this.enabled = enabled;
-    if (this.master) this.master.gain.value = enabled ? .34 : 0;
-    if (enabled) void this.resume(); else this.stop();
+    if (this.master) this.master.gain.value = enabled ? .8 : 0;
+    if (enabled) void this.resume(); else { this.stop(); this.music?.stop(); }
   }
   setListener(listener, world) { this.listener = listener; this.world = world; }
   position(source, listener = this.listener, range = SOUND_DISTANCE) {
@@ -131,35 +149,100 @@ export class GameSounds {
     for (const id of this.remoteSteps.keys()) if (!ids.has(id)) this.remoteSteps.delete(id);
   }
   playAt(block, action, source, listener) { const position = this.position(source, listener); this.play(block, action, position.gain, position); }
-  play(block, action, volume = 1, position = {}) {
-    if (!canPlaySound(block, action)) return;
-    const variant = this.nextVariant++ % 4;
-    this.emit(`${block}:${action}:${variant}`, () => synthesizeSound(block, action, this.context.sampleRate, variant), volume, position);
+  playListenerImpact(block, action, source, listener) {
+    const position = this.cuePosition(source, listener);
+    const recipe = [...soundRecipe(block, action, this.nextVariant++).map(layer => ({ ...layer, gain: Math.min(.95, layer.gain * 1.4) })), ...cueRecipe('pressure', this.nextVariant++)];
+    this.playRecipe(recipe, position.gain * 1.25, position, true);
+    if (position.gain >= .025 && this.enabled && this.effectsVolume) this.music?.duck();
   }
+  play(block, action, volume = 1, position = {}) {
+    this.playRecipe(soundRecipe(block, action, this.nextVariant++), volume, position);
+  }
+  playPickup() { this.playRecipe(pickupRecipe(this.nextVariant++), 1, {}, true, .35); }
   cuePosition(source, listener) { return this.position(source, listener, LISTENER_SOUND_DISTANCE); }
   playCueAt(kind, source, listener) {
-    if (!canPlayCue(kind)) return 0;
-    const position = this.cuePosition(source, listener), variant = this.nextVariant++ % 4;
-    this.emit(`listener:${kind}:${variant}`, () => synthesizeCue(kind, this.context.sampleRate, variant), position.gain, position, true);
+    const recipe = cueRecipe(kind, this.nextVariant++);
+    if (!recipe.length) return 0;
+    const position = this.cuePosition(source, listener);
+    if (position.gain >= .025 && this.enabled && this.effectsVolume) this.music?.duck();
+    this.playRecipe(recipe, position.gain, position, true);
     return position.gain;
   }
-  emit(key, samples, volume, { pan = 0, cutoff = 14000 } = {}, priority = false) {
-    if (!this.enabled || !this.master || this.context?.state !== 'running' || !Number.isFinite(volume) || volume <= 0) return;
+  setEffectsVolume(volume) {
+    if (!Number.isFinite(volume)) return;
+    this.effectsVolume = Math.max(0, Math.min(1, volume));
+    if (this.effects) this.effects.gain.value = this.effectsVolume;
+    if (!this.effectsVolume) this.stop();
+  }
+  setMusicVolume(volume) {
+    if (!Number.isFinite(volume)) return;
+    this.musicVolume = Math.max(0, Math.min(1, volume)); this.music?.setVolume(this.musicVolume);
+  }
+  setMusicEnabled(enabled) {
+    this.musicEnabled = !!enabled; this.music?.setEnabled(this.musicEnabled);
+    if (this.musicEnabled && this.enabled) void this.resume();
+  }
+  updateMusic(state) {
+    if (!this.enabled) return;
+    try { this.music?.update(state); } catch { this.music?.setEnabled(false); }
+  }
+  async loadSample(file) {
+    if (this.buffers.has(file)) return this.buffers.get(file);
+    if (this.loading.has(file)) return this.loading.get(file);
+    if (!this.context || (this.failed.get(file) || 0) > Date.now()) return null;
+    const task = (async () => {
+      try {
+        const response = await Promise.resolve().then(() => fetch(file));
+        if (!response.ok) throw new Error('Audio unavailable');
+        const buffer = await this.context.decodeAudioData(await response.arrayBuffer());
+        if (this.buffers.size >= MAX_SOUND_BUFFERS) this.buffers.delete(this.buffers.keys().next().value);
+        this.buffers.set(file, buffer); this.failed.delete(file); return buffer;
+      } catch { this.failed.set(file, Date.now() + 30000); return null; }
+      finally { this.loading.delete(file); }
+    })();
+    this.loading.set(file, task); return task;
+  }
+  async preload() {
+    if (this.preloadTask || !this.context) return this.preloadTask;
+    this.preloadTask = (async () => {
+      // Four concurrent decodes keep loading bounded and out of the frame loop.
+      let next = 0;
+      await Promise.all(Array.from({ length: 4 }, async () => {
+        while (next < EFFECT_FILES.length) await this.loadSample(EFFECT_FILES[next++]);
+      }));
+    })();
+    try { await this.preloadTask; } finally { this.preloadTask = null; }
+  }
+  playRecipe(recipe, volume, position, priority = false, maxAge = .12) {
+    if (!this.enabled || !this.effectsVolume || !this.master || this.context?.state !== 'running' || !Number.isFinite(volume) || volume <= 0) return;
+    const generation = this.generation, requested = this.context.currentTime;
+    for (const layer of recipe) {
+      const buffer = this.buffers.get(layer.file);
+      if (buffer) this.emit(buffer, volume * layer.gain, position, priority, layer);
+      else void this.loadSample(layer.file).then(loaded => {
+        // Never replay an old footfall/cue after loading, pausing, or changing worlds.
+        if (loaded && generation === this.generation && this.context.currentTime - requested < maxAge) this.emit(loaded, volume * layer.gain, position, priority, layer);
+      });
+    }
+  }
+  emit(buffer, volume, { pan = 0, cutoff = 14000 } = {}, priority = false, { delay = 0, rate = 1, duration } = {}) {
+    if (!this.enabled || !this.effectsVolume || !this.master || this.context?.state !== 'running' || !Number.isFinite(volume) || volume <= 0) return;
     if (this.active.size >= MAX_SOUND_VOICES) { if (!priority) return; const oldest = this.active.values().next().value; this.active.delete(oldest); oldest.stop(); }
-    let buffer = this.buffers.get(key);
-    if (!buffer) {
-      const pcm = samples(); buffer = this.context.createBuffer(1, pcm.length, this.context.sampleRate); buffer.copyToChannel(pcm, 0);
-      if (this.buffers.size >= MAX_SOUND_BUFFERS) this.buffers.delete(this.buffers.keys().next().value);
-    } else this.buffers.delete(key);
-    this.buffers.set(key, buffer);
     const source = this.context.createBufferSource(), gain = this.context.createGain(), nodes = [gain];
-    source.buffer = buffer; gain.gain.value = Math.min(1, volume); source.connect(gain);
+    source.buffer = buffer; source.playbackRate.value = rate; gain.gain.value = Math.min(1, volume); source.connect(gain);
     let last = gain;
     if (this.context.createStereoPanner) { const node = this.context.createStereoPanner(); node.pan.value = pan; last.connect(node); last = node; nodes.push(node); }
     if (cutoff < 14000 && this.context.createBiquadFilter) { const node = this.context.createBiquadFilter(); node.type = 'lowpass'; node.frequency.value = cutoff; last.connect(node); last = node; nodes.push(node); }
-    last.connect(this.master);
+    last.connect(this.effects || this.master);
     source.onended = () => { source.disconnect(); for (const node of nodes) node.disconnect(); this.active.delete(source); };
-    this.active.add(source); source.start();
+    this.active.add(source);
+    const start = this.context.currentTime + delay;
+    if (Number.isFinite(duration) && duration > 0) {
+      const length = Math.min(duration, buffer.duration / rate);
+      gain.gain.setValueAtTime?.(gain.gain.value, start + Math.max(0, length - .025));
+      gain.gain.linearRampToValueAtTime?.(0, start + length);
+      source.start(start, 0, length * rate);
+    } else source.start(start);
   }
-  stop() { for (const source of [...this.active]) source.stop(); this.active.clear(); }
+  stop() { this.generation++; for (const source of [...this.active]) source.stop(); this.active.clear(); }
 }

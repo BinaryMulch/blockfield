@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { World, AIR, DIRT, STONE, WOOD, LEAVES, SAND, CONCRETE, REINFORCED_PANEL, WARD_LANTERN, SALVAGE_CRATE, SAPLING, SCRAP, BIOFUEL, REPAIR_TOOL, doorBlock, SECURITY_DOOR, isBlock, isSolid } from '../src/world.js';
+import { World, AIR, DIRT, STONE, WOOD, PLANKS, LEAVES, SAND, CONCRETE, REINFORCED_PANEL, WARD_LANTERN, SALVAGE_CRATE, SAPLING, SCRAP, BIOFUEL, REPAIR_TOOL, doorBlock, SECURITY_DOOR, isBlock, isSolid } from '../src/world.js';
 import { Inventory } from '../src/inventory.js';
 import { EditHistory } from '../src/history.js';
 import { Infrastructure } from '../src/infrastructure.js';
@@ -9,7 +9,7 @@ import { ShelterSystem } from '../src/shelter.js';
 import { GameRoom } from '../server/room.js';
 import { validateSave } from '../src/saves.js';
 import { buildItemGeometry } from '../src/terrain.js';
-import { synthesizeSound } from '../src/sound.js';
+import { soundRecipe } from '../src/sound.js';
 
 const p = { x: 10, y: 4, z: 10 }, pose = { x: 12.5, y: 4, z: 12.5, yaw: 0 };
 const k = '10,4,10';
@@ -39,12 +39,12 @@ const action = (s, method, args = p) => s.upkeep.command(method, args, s.invento
 test('renewable recipes conserve ingredients and upkeep items cannot become terrain blocks', () => {
   const s = setup(); s.inventory.stacks[0] = { block: LEAVES, count: 2 };
   assert.equal(s.inventory.craft(SAPLING).ok, true); assert.equal(s.inventory.count(LEAVES), 1); assert.equal(s.inventory.count(SAPLING), 1);
-  s.inventory.stacks[2] = { block: WOOD, count: 1 };
+  s.inventory.stacks[2] = { block: WOOD, count: 1 }; s.inventory.stacks[3] = { block: STONE, count: 1 };
   assert.equal(s.inventory.craft(BIOFUEL).ok, true); assert.equal(s.inventory.count(WOOD), 0); assert.equal(s.inventory.count(BIOFUEL), 2);
   for (const item of [SCRAP, BIOFUEL, REPAIR_TOOL]) {
     assert.equal(isBlock(item), false); assert.equal(s.world.set(10, 4, 10, item), false);
     const geometry = buildItemGeometry(item); assert.ok(geometry.attributes.position.count > 0); geometry.dispose();
-    assert.ok(synthesizeSound(item, 'place', 16000).some(value => value !== 0));
+    assert.ok(soundRecipe(item, 'place').some(layer => layer.file.endsWith('.wav') && layer.gain > 0));
   }
 });
 
@@ -61,7 +61,9 @@ test('saplings require soil, remain non-solid, and grow through three saved stag
   assert.ok(s.upkeep.step().length > 4); assert.equal(s.upkeep.plants.size, 0); assert.equal(s.upkeep.queue.heap.length, 0);
   assert.equal(s.world.get(10, 4, 10), WOOD); assert.equal(s.world.get(11, 6, 10), LEAVES);
   assert.equal(s.history.edit(11, 6, 10, AIR).ok, true); assert.equal(s.inventory.craft(SAPLING).ok, true);
-  assert.equal(s.inventory.count(SAPLING), 1); assert.equal(s.history.edit(10, 4, 10, AIR).ok, true); assert.equal(s.inventory.count(WOOD), 1);
+  assert.equal(s.inventory.count(SAPLING), 1);
+  for (let hit = 0; hit < 3; hit++) { s.history.attackTime = hit * .31; assert.equal(s.history.edit(10, 4, 10, AIR).ok, true); }
+  assert.equal(s.inventory.count(WOOD), 1);
 });
 
 test('mature trees wait for buildings and players to clear without overwriting them', () => {
@@ -162,13 +164,13 @@ test('repairs restore strength once using a reusable tool and matching material,
   assert.equal(s.history.edit(10, 4, 10, AIR).remaining, 3);
   assert.equal(action(s, 'repair').reason, 'tool');
   s.inventory.stacks[0] = { block: REPAIR_TOOL, count: 1 }; assert.equal(action(s, 'repair').reason, 'supplies');
-  s.inventory.stacks[1] = { block: SCRAP, count: 1 }; assert.equal(action(s, 'repair').ok, true);
-  assert.equal(action(s, 'repair').reason, 'undamaged'); assert.equal(s.inventory.count(REPAIR_TOOL), 1); assert.equal(s.inventory.count(SCRAP), 0);
+  s.inventory.stacks[1] = { block: PLANKS, count: 1 }; assert.equal(action(s, 'repair').ok, true);
+  assert.equal(action(s, 'repair').reason, 'undamaged'); assert.equal(s.inventory.count(REPAIR_TOOL), 1); assert.equal(s.inventory.count(PLANKS), 0);
   s.world.set(10, 4, 10, CONCRETE); s.history.attackTime = 1; assert.equal(s.history.edit(10, 4, 10, AIR).remaining, 1);
   s.inventory.stacks[1] = { block: STONE, count: 1 }; assert.equal(action(s, 'repair').ok, true); assert.equal(s.inventory.count(STONE), 0);
   s.world.set(10, 4, 10, doorBlock(0, false, false, SECURITY_DOOR)); s.world.set(10, 5, 10, doorBlock(0, false, true, SECURITY_DOOR));
   s.history.attackTime = 2; assert.equal(s.history.edit(10, 5, 10, AIR).remaining, 4);
-  s.inventory.stacks[1] = { block: SCRAP, count: 1 }; assert.equal(action(s, 'repair', { ...p, y: 5 }).ok, true); assert.equal(s.infrastructure.damage.size, 0);
+  s.inventory.stacks[1] = { block: PLANKS, count: 1 }; assert.equal(action(s, 'repair', { ...p, y: 5 }).ok, true); assert.equal(s.infrastructure.damage.size, 0);
 });
 
 test('world saves preserve upkeep and offline time freezes fuel, growth, and replenishment', () => {

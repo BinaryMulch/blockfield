@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CONCRETE, REINFORCED_PANEL, STORAGE_CABINET, SECURITY_DOOR, buildBlock, doorState } from './world.js';
+import { STONE, WOOD, STONE_BRICKS, BRACED_TIMBER, WOODEN_CHEST, BRACED_DOOR, buildBlock, doorState } from './world.js';
 import { strength } from './infrastructure.js';
 import { TILE_SIZE, TILE_PADDING, TILE_STRIDE, ATLAS_WIDTH, ATLAS_HEIGHT } from './textures.js';
 
@@ -10,7 +10,7 @@ export const DAMAGE_STRIDE = DAMAGE_TILE_SIZE + DAMAGE_PADDING * 2;
 export const DAMAGE_ATLAS_WIDTH = DAMAGE_STRIDE * 4;
 export const DAMAGE_ATLAS_HEIGHT = DAMAGE_STRIDE * DAMAGE_VARIANTS * 3;
 export const DAMAGE_RANGE_SIZE = 6;
-const DAMAGE_STYLES = Object.freeze({ [CONCRETE]: 0, [REINFORCED_PANEL]: 1, [STORAGE_CABINET]: 2, [SECURITY_DOOR]: 2 });
+const DAMAGE_STYLES = Object.freeze({ [STONE]: 0, [WOOD]: 1, [STONE_BRICKS]: 0, [BRACED_TIMBER]: 1, [WOODEN_CHEST]: 2, [BRACED_DOOR]: 2 });
 export const damageStyle = block => DAMAGE_STYLES[buildBlock(block)] ?? -1;
 export const damageStage = (block, remaining) => Math.max(0, Math.min(3, Math.ceil((1 - remaining / strength(block)) * 3)));
 export const damageVariant = (x, y, z) => ((Math.imul(x, 73856093) ^ Math.imul(y, 19349663) ^ Math.imul(z, 83492791)) >>> 0) % DAMAGE_VARIANTS;
@@ -23,7 +23,7 @@ function lineDistance(x, y, ax, ay, bx, by) {
   return Math.hypot(x - ax - t * dx, y - ay - t * dy);
 }
 
-// R: dark fissures/dents, G: chipped surface/exposed material, B: edge highlight.
+// R: dark cracks/wood splits, G: chipped surface/exposed material, B: edge highlight.
 // Masks are generated once; no animated noise or per-frame texture generation.
 export function damageMaskPixel(style, variant, stage, x, y) {
   if (!stage) return [0, 0, 0, 255];
@@ -32,9 +32,11 @@ export function damageMaskPixel(style, variant, stage, x, y) {
     [13 + shift, 1, 17 + shift, 12, 1], [17 + shift, 12, 11 + shift, 23, 1], [11 + shift, 23, 15 + shift, 31, 2],
     [17 + shift, 12, 28, 7 + variant, 2], [11 + shift, 23, 2, 17 + variant, 2], [17 + shift, 12, 25, 24, 3], [25, 24, 31, 27 - variant, 3],
   ] : style === 1 ? [
-    [4, 7 + shift, 16, 13 + shift, 1], [16, 13 + shift, 27, 11, 2], [3, 24, 17, 19 + shift, 2], [17, 19 + shift, 29, 28, 3],
+    [7 + shift, 2, 9 + shift, 13, 1], [9 + shift, 13, 6 + shift, 28, 1], [9 + shift, 13, 14 + shift, 19, 2],
+    [23 - shift, 5, 21 - shift, 17, 2], [21 - shift, 17, 24 - shift, 30, 3], [6 + shift, 28, 2, 31, 3],
   ] : [
-    [21 + shift, 9, 23 + shift, 23, 1], [23 + shift, 23, 16, 28, 2], [6, 20 + shift, 13, 18 + shift, 2], [3, 5, 24, 25 + shift, 3],
+    [11 + shift, 3, 9 + shift, 17, 1], [9 + shift, 17, 12 + shift, 29, 1], [9 + shift, 17, 4, 23, 2],
+    [23 - shift, 8, 25 - shift, 26, 2], [25 - shift, 26, 30, 31, 3], [12 + shift, 29, 16, 31, 3],
   ];
   let distance = 100;
   for (const [ax, ay, bx, by, first] of lines) if (stage >= first) distance = Math.min(distance, lineDistance(x, y, ax, ay, bx, by));
@@ -44,11 +46,10 @@ export function damageMaskPixel(style, variant, stage, x, y) {
     if (stage >= 2 && distance < width + 1.3 && grain > .68) chip = 210;
     if (stage === 3 && Math.min(x, y, 31 - x, 31 - y) < 2 && grain > .52) chip = 230;
   } else {
-    const cx = style === 1 ? 15 + shift : 20 + shift, cy = style === 1 ? 17 - shift : 18;
-    const radius = Math.hypot((x - cx) / (3 + stage * 2), (y - cy) / (2 + stage * 1.5));
-    if (radius < .95) dark = Math.max(dark, Math.round((1 - radius * .5) * (55 + stage * 19)));
-    if (radius > .85 && radius < 1.1 && y < cy) highlight = Math.max(highlight, 95 + stage * 15);
-    if (distance < width + .6 && (x + y + variant) % 4 !== 0) chip = Math.max(chip, 110 + stage * 30);
+    const grain = (x * 11 + y * 3 + variant * 7) % 13;
+    if (stage >= 2 && distance < width + 1.2 && grain < 5) chip = 175 + stage * 15;
+    if (stage === 3 && Math.min(x, y, 31 - x, 31 - y) < 2 && grain < 4) chip = 225;
+    if (distance >= width && distance < width + 1 && x % 2 === variant % 2) highlight = Math.max(highlight, 150);
   }
   return [dark, chip, highlight, 255];
 }
@@ -94,10 +95,10 @@ export function applyDamageMaterial(material, texture) {
           vec2 wearTile = floor(vStructuralDamage.xy + 0.5) * ${DAMAGE_STRIDE}.0;
           vec2 wearUv = (wearTile + ${DAMAGE_PADDING}.0 + 0.5 + vStructuralDamageUv * ${DAMAGE_TILE_SIZE - 1}.0) / vec2(${DAMAGE_ATLAS_WIDTH}.0, ${DAMAGE_ATLAS_HEIGHT}.0);
           vec3 wear = texture2D(structuralDamageMap, wearUv).rgb;
-          vec3 exposedSurface = vStructuralDamage.y < ${DAMAGE_VARIANTS}.0 ? vec3(0.46, 0.49, 0.48) : vec3(0.34, 0.41, 0.46);
+          vec3 exposedSurface = vStructuralDamage.y < ${DAMAGE_VARIANTS}.0 ? vec3(0.46, 0.47, 0.43) : vec3(0.52, 0.32, 0.14);
           diffuseColor.rgb *= 1.0 - wear.r * 0.72;
           diffuseColor.rgb = mix(diffuseColor.rgb, exposedSurface, wear.g * 0.75);
-          diffuseColor.rgb = clamp(diffuseColor.rgb + vec3(0.10, 0.12, 0.13) * wear.b, 0.0, 1.0);
+          diffuseColor.rgb = clamp(diffuseColor.rgb + vec3(0.13, 0.10, 0.06) * wear.b, 0.0, 1.0);
         }
       `);
   };

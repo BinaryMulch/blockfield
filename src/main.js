@@ -1,10 +1,11 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
-import { HEIGHT, WATER, DOOR, LANTERN, WARD_LANTERN, SLAB, RED_FLOWER, FLOWER_TYPES, EYE_HEIGHT, SALVAGE_CRATE, REPAIR_TOOL, BIOFUEL, isBlock, isSapling, isPlant, isSolid, isDoor, isCabinet, isLantern, isFlower, doorState, buildBlock, blockBounds, overlapsBlock, spawnPlayer, stepPlayer } from './world.js';
+import { HEIGHT, WATER, DOOR, LANTERN, WARD_LANTERN, SLAB, RED_FLOWER, FLOWER_TYPES, EYE_HEIGHT, SALVAGE_CRATE, STONE_HAMMER, CHARCOAL, isBlock, isSapling, isPlant, isSolid, isDoor, isCabinet, isLantern, isFlower, doorState, buildBlock, blockBounds, overlapsBlock, spawnPlayer, stepPlayer } from './world.js';
 import { ChunkWorld } from './chunks.js';
 import { ChunkRenderer } from './chunk-renderer.js';
 import { createTextureAtlas, createLanternEmissiveMap } from './textures.js';
 import { FootstepTracker, WaterSoundTracker, GameSounds } from './sound.js';
+import { readAudioSettings, writeAudioSettings } from './audio-settings.js';
 import { WorldSky } from './sky.js';
 import { GameSession, serverURL } from './session.js';
 import { browserSaves, saveMessage } from './browser-saves.js';
@@ -14,18 +15,20 @@ import { BlockParticles } from './particles.js';
 import { LanternLighting } from './lanterns.js';
 import { slabPlacement } from './slabs.js';
 import { PerformanceOverlay } from './performance.js';
+import { DirectorDebugView } from './director-ui.js';
 import { TouchControls } from './touch.js';
 import { GraphicsSettings } from './graphics.js';
 import { Inventory, MATERIALS, STACK_LIMIT, validInventory } from './inventory.js';
 import { InventoryView } from './inventory-ui.js';
+import { renderHotbarSlots, fitHotbarLabels, highlightHotbarPickup } from './hotbar-ui.js';
 import { StorageView } from './storage-ui.js';
 import { UpkeepView, upkeepFailure } from './upkeep-ui.js';
-import { strength } from './infrastructure.js';
+import { strength, isRepairable } from './infrastructure.js';
 import { applyDamageMaterial } from './damage.js';
 import { ListenerRenderer } from './listener-renderer.js';
 import { DOWNED_EYE_HEIGHT, rescueInReach } from './encounters.js';
 import { MenuScreens } from './menu.js';
-import { HotbarScroll, disableUIFocus } from './input.js';
+import { HotbarScroll, disableUIFocus, INVENTORY_KEY, DROP_KEY, hotbarArrowDirection } from './input.js';
 import { DropRenderer } from './drop-renderer.js';
 import { PICKUP_RADIUS } from './drops.js';
 import { WardRenderer, shelterDescription, wardDescription } from './ward-renderer.js';
@@ -85,13 +88,42 @@ function start() {
   const waterSounds = new WaterSoundTracker();
   const hotbarScroll = new HotbarScroll();
   const soundToggle = document.querySelector('#sound-toggle');
-  function toggleSound() {
-    sounds.setEnabled(!sounds.enabled);
+  const effectsVolume = document.querySelector('#effects-volume');
+  const musicVolume = document.querySelector('#music-volume');
+  const musicEnabled = document.querySelector('#music-enabled');
+  let audioStorage;
+  try { audioStorage = localStorage; } catch { /* Browser storage is optional. */ }
+  const audioPreferences = readAudioSettings(audioStorage);
+  sounds.enabled = audioPreferences.enabled;
+  sounds.effectsVolume = audioPreferences.effects;
+  sounds.musicEnabled = audioPreferences.musicEnabled;
+  sounds.musicVolume = audioPreferences.music;
+  function syncAudioControls() {
     soundToggle.setAttribute('aria-pressed', String(!sounds.enabled));
-    soundToggle.setAttribute('aria-label', sounds.enabled ? 'Mute sound' : 'Unmute sound');
+    soundToggle.setAttribute('aria-label', sounds.enabled ? 'Mute all audio' : 'Unmute all audio');
     soundToggle.innerHTML = `Sound ${sounds.enabled ? 'on' : 'off'} <kbd>M</kbd>`;
+    effectsVolume.value = String(Math.round(sounds.effectsVolume * 100));
+    musicVolume.value = String(Math.round(sounds.musicVolume * 100));
+    document.querySelector('#effects-volume-value').value = `${effectsVolume.value}%`;
+    document.querySelector('#music-volume-value').value = `${musicVolume.value}%`;
+    musicEnabled.checked = sounds.musicEnabled;
+  }
+  function toggleSound() {
+    sounds.setEnabled(!sounds.enabled); syncAudioControls(); writeAudioSettings(audioStorage, sounds);
   }
   soundToggle.addEventListener('click', toggleSound);
+  effectsVolume.addEventListener('input', () => {
+    sounds.setEffectsVolume(Number(effectsVolume.value) / 100); syncAudioControls(); writeAudioSettings(audioStorage, sounds);
+    void sounds.resume();
+  });
+  musicVolume.addEventListener('input', () => {
+    sounds.setMusicVolume(Number(musicVolume.value) / 100); syncAudioControls(); writeAudioSettings(audioStorage, sounds);
+    void sounds.resume();
+  });
+  musicEnabled.addEventListener('change', () => {
+    sounds.setMusicEnabled(musicEnabled.checked); syncAudioControls(); writeAudioSettings(audioStorage, sounds);
+  });
+  syncAudioControls();
   const atlas = createTextureAtlas();
   const chunkRenderer = new ChunkRenderer(scene, world, {
     solid: new THREE.MeshLambertMaterial({ map: atlas, vertexColors: true, shadowSide: THREE.FrontSide }),
@@ -151,6 +183,7 @@ function start() {
     listener: history.mode === 'single' ? history.backend?.listener?.diagnostics() : null,
     graphics: graphics.snapshot(),
   }));
+  const directorDebug = new DirectorDebugView(() => ({ mode: history.mode, listener: history.mode === 'single' ? history.backend?.listener?.diagnostics() : null }));
   graphics.onChange = () => diagnostics.reset();
   controls.pointerSpeed = 0.65;
   controls.minPolarAngle = 0.05;
@@ -198,9 +231,9 @@ function start() {
   let hasPlayed = false;
   const inventoryButton = document.querySelector('#inventory-toggle');
   const hotbar = document.querySelector('#hotbar');
+  new ResizeObserver(() => fitHotbarLabels(hotbar)).observe(hotbar);
   const inventoryView = new InventoryView(inventory, atlas, {
     action(args) { return history.request('inventory', args); },
-    craft(block) { return history.request('craft', { block }); },
     drop(args) { return history.request('drop', args); },
     close: closeInventory,
     escape() { closeInventory(true, { fromEscape: true }); },
@@ -242,19 +275,8 @@ function start() {
   }
 
   function renderHotbar() {
-    selected = inventory.block; hotbar.replaceChildren();
-    inventory.hotbar.forEach((block, index) => {
-      const button = document.createElement('button'); button.type = 'button'; button.className = 'slot';
-      button.dataset.slot = index; button.dataset.block = block;
-      const count = inventory.slotCount(index), quantity = String(count);
-      button.setAttribute('aria-label', `${BLOCK_NAMES[block] || 'Empty'}, slot ${index + 1}, ${count} collected`);
-      button.setAttribute('aria-pressed', String(index === inventory.selected)); button.classList.toggle('selected', index === inventory.selected);
-      button.classList.toggle('depleted', count === 0);
-      const key = document.createElement('span'); key.className = 'slot-key'; key.textContent = index + 1;
-      const supply = document.createElement('span'); supply.className = 'slot-supply'; supply.textContent = quantity; supply.setAttribute('aria-hidden', 'true');
-      const name = document.createElement('span'); name.textContent = BLOCK_NAMES[block] || 'Empty';
-      button.append(key); if (block) button.append(supply, inventoryView.icon(block)); button.append(name); hotbar.append(button);
-    });
+    selected = inventory.block;
+    renderHotbarSlots(hotbar, inventory, block => inventoryView.icon(block));
   }
 
   function inventoryChanged() {
@@ -386,6 +408,7 @@ function start() {
     captureAfterEscape = true;
   }
   window.addEventListener('blur', () => {
+    sounds.music?.stop();
     captureAfterEscape = false;
     inventoryReturnToPlay = false;
     if (inventoryOpen) inventoryView.back.textContent = 'Back to menu';
@@ -394,6 +417,7 @@ function start() {
   });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
+      sounds.music?.stop();
       captureAfterEscape = false;
       inventoryReturnToPlay = false;
       if (inventoryOpen) inventoryView.back.textContent = 'Back to menu';
@@ -402,11 +426,12 @@ function start() {
       if (!history.backend?.saveError) void history.flush();
     }
   });
-  window.addEventListener('pagehide', () => { if (!history.backend?.saveError) void history.flush(); });
+  window.addEventListener('pagehide', () => { sounds.stop(); sounds.music?.stop(); if (!history.backend?.saveError) void history.flush(); });
 
   document.addEventListener('keydown', (event) => {
     const typing = event.target.closest?.('input, textarea, select, [contenteditable="true"]');
     const modified = event.metaKey || event.ctrlKey || event.altKey;
+    if (!typing && event.code === 'KeyO' && !event.repeat && !modified) { event.preventDefault(); directorDebug.setEnabled(!directorDebug.enabled); return; }
     if (event.code === 'Escape') {
       event.preventDefault();
       // The browser can consume Escape keyup when releasing pointer lock.
@@ -420,15 +445,16 @@ function start() {
       return;
     }
     if (inventoryOpen) {
+      if (!typing && !modified && !event.repeat && event.code === INVENTORY_KEY) { event.preventDefault(); closeInventory(true); return; }
       if (storageView.dialog.open || upkeepView.dialog.open) return;
       if (!typing && !modified && !event.repeat) {
-        if (event.code === 'KeyI') { event.preventDefault(); closeInventory(true); }
-        else if (/^Digit[1-9]$/.test(event.code)) { event.preventDefault(); const index = Number(event.code.slice(-1)) - 1; if (!inventoryView.hotbarKey(index) && inventory.select(index)) inventoryChanged(); }
+        if (/^Digit[1-9]$/.test(event.code)) { event.preventDefault(); const index = Number(event.code.slice(-1)) - 1; if (!inventoryView.hotbarKey(index) && inventory.select(index)) inventoryChanged(); }
+        else if (hotbarArrowDirection(event.code)) { event.preventDefault(); stepHotbar(hotbarArrowDirection(event.code)); }
       }
       return;
     }
     if (typing) return;
-    if (event.code === 'KeyI' && !event.repeat && !modified) { event.preventDefault(); openInventory(); return; }
+    if (event.code === INVENTORY_KEY && !modified) { event.preventDefault(); if (!event.repeat) void interactOrInventory(); return; }
     if (event.code === 'KeyP' && !event.repeat && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault(); diagnostics.setEnabled(!diagnostics.enabled); return;
     }
@@ -439,9 +465,10 @@ function start() {
     }
     if (!playing || isDowned()) return;
     if (event.code === 'KeyH' && !modified) { event.preventDefault(); keys.add(event.code); return; }
-    if (event.code === 'KeyQ' && !modified) {
+    if (event.code === DROP_KEY && !modified) {
       event.preventDefault(); if (!event.repeat) void dropItem(event.shiftKey); return;
     }
+    if (hotbarArrowDirection(event.code) && !modified) { event.preventDefault(); stepHotbar(hotbarArrowDirection(event.code)); return; }
     if (/^Digit[1-9]$/.test(event.code) && !event.repeat && !modified) {
       event.preventDefault(); if (inventory.select(Number(event.code.slice(-1)) - 1)) inventoryChanged(); return;
     }
@@ -459,11 +486,6 @@ function start() {
     if (event.code === 'KeyR' && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
       if (!event.repeat) cycleFlower();
-      return;
-    }
-    if (event.code === 'KeyE' && !event.metaKey && !event.ctrlKey && !event.altKey) {
-      event.preventDefault();
-      if (!event.repeat) useDoor();
       return;
     }
     if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'KeyF', 'ShiftLeft', 'ShiftRight'].includes(event.code)) event.preventDefault();
@@ -504,8 +526,11 @@ function start() {
     if (!playing || inventoryOpen || event.ctrlKey || event.metaKey) return;
     event.preventDefault();
     const direction = hotbarScroll.update(event, performance.now());
-    if (direction && inventory.select((inventory.selected + direction + inventory.hotbar.length) % inventory.hotbar.length)) inventoryChanged();
+    if (direction) stepHotbar(direction);
   }, { passive: false });
+  function stepHotbar(direction) {
+    if (inventory.select((inventory.selected + direction + inventory.hotbar.length) % inventory.hotbar.length)) inventoryChanged();
+  }
   hotbar.addEventListener('click', event => {
     const slot = event.target.closest('[data-slot]'); if (!slot) return;
     const index = Number(slot.dataset.slot);
@@ -556,12 +581,21 @@ function start() {
 
   async function interactOrPlace() {
     if (isDowned()) return;
-    if (selected === REPAIR_TOOL && target && strength(world.get(target.x, target.y, target.z)) > 1) { await repairTarget(); return; }
+    if (selected === STONE_HAMMER && target && isRepairable(world.get(target.x, target.y, target.z))) { await repairTarget(); return; }
     const door = interactionTarget();
     if (door) await useDoor(door);
     else if (target && (world.get(target.x, target.y, target.z) === WARD_LANTERN || world.get(target.x, target.y, target.z) === SALVAGE_CRATE || isSapling(world.get(target.x, target.y, target.z)))) await openUpkeep();
     else if (target && isCabinet(world.get(target.x, target.y, target.z))) await openStorage();
     else await editBlock(true);
+  }
+
+  async function interactOrInventory() {
+    if (!playing) { openInventory(); return; }
+    if (isDowned()) return;
+    const door = interactionTarget(), block = target && world.get(target.x, target.y, target.z);
+    if (door || target && (isCabinet(block) || block === WARD_LANTERN || block === SALVAGE_CRATE || isSapling(block)
+      || selected === STONE_HAMMER && isRepairable(block))) await useDoor(door);
+    else openInventory();
   }
 
   let openingStorage = false;
@@ -599,11 +633,11 @@ function start() {
 
   async function useDoor(door = interactionTarget()) {
     if (isDowned()) return;
-    if (selected === REPAIR_TOOL && target && strength(world.get(target.x, target.y, target.z)) > 1) { await repairTarget(); return; }
+    if (selected === STONE_HAMMER && target && isRepairable(world.get(target.x, target.y, target.z))) { await repairTarget(); return; }
     if (!door) {
       if (target && (world.get(target.x, target.y, target.z) === WARD_LANTERN || world.get(target.x, target.y, target.z) === SALVAGE_CRATE || isSapling(world.get(target.x, target.y, target.z)))) await openUpkeep();
       else if (target && isCabinet(world.get(target.x, target.y, target.z))) await openStorage();
-      else notify('Look at a door, cabinet, ward, sapling, or supply point to interact.');
+      else notify('Look at a door, chest, ward, sapling, or supply point to interact.');
       return;
     }
     const result = await history.toggleDoor(door.x, door.y, door.z);
@@ -617,8 +651,8 @@ function start() {
     let { x, y, z } = target;
     let nextBlock;
     if (place) {
-      if (!selected) { notify('Choose a block in your hotbar. Open inventory with I to move one there.'); return; }
-      if (!isBlock(selected)) { notify(selected === REPAIR_TOOL ? 'Use this tool on a damaged structure with E / Use.' : selected === BIOFUEL ? 'Use a ward emitter to load biomass cartridges.' : 'Use scrap metal in crafting and repairs.'); return; }
+      if (!selected) { notify('Choose a block in your hotbar. Open inventory with E to move one there.'); return; }
+      if (!isBlock(selected)) { notify(selected === STONE_HAMMER ? 'Use this tool on a damaged structure with E / Use.' : selected === CHARCOAL ? 'Use a ward lantern to load charcoal.' : 'Use wooden pegs to craft braced timber.'); return; }
       const replacingFlower = isPlant(world.get(x, y, z));
       if (selected === SLAB) {
         const placement = slabPlacement(world, target);
@@ -679,13 +713,13 @@ function start() {
     }
     const result = await history.edit(x, y, z, nextBlock);
     if (!result.ok && result.reason !== 'cooldown') editError(result);
-    else if (result.remaining) notify(`Structure strength: ${result.remaining} hits remaining`);
+    else if (result.remaining) notify(`Block strength: ${result.remaining} hits remaining`);
   }
 
   function editError(result, fallback = 'That edit could not be applied.') {
     notify({ creature: 'The Listener is in that space. Wait until it moves clear.', downed: 'You are down. Wait for help or automatic recovery.', blocked: 'That space is occupied by a player. Move clear, then try again.',
       changed: 'Someone changed that block. This action cannot overwrite their edit.',
-      storage_not_empty: 'Empty this cabinet before dismantling it.',
+      storage_not_empty: 'Empty this chest before dismantling it.',
       landmark: 'This is a fixed salvage supply point. Use it to gather supplies.',
       capacity: 'This world has reached its storage or construction tracking limit.',
       cooldown: 'Wait a moment before striking again.',
@@ -695,10 +729,10 @@ function start() {
       disconnected: 'Waiting for the host to reconnect…', busy: 'Let the current edits finish, then try again.', reach: 'That block is out of reach.' }[result.reason] || fallback);
   }
 
-  function finishEdit(change, normal, changes = [change]) {
+  function finishEdit(change, normal, changes = [change], actor) {
     const { from, to } = change;
-    const cabinet = storageView.storage;
-    if (cabinet && changes.some(c => c.x === cabinet.x && c.y === cabinet.y && c.z === cabinet.z && !isCabinet(c.to))) { closeInventory(false); notify('The cabinet was dismantled.'); }
+    const chest = storageView.storage;
+    if (chest && changes.some(c => c.x === chest.x && c.y === chest.y && c.z === chest.z && !isCabinet(c.to))) { closeInventory(false); notify('The chest was dismantled.'); }
     const position = { x: change.x + 0.5, y: change.y + 0.5, z: change.z + 0.5 };
     const listener = { x: player.x, y: player.y + eyeHeight(), z: player.z };
     if (changes.every(c => isDoor(c.from) && isDoor(c.to))) {
@@ -706,7 +740,10 @@ function start() {
     }
     else {
       const placing = isSolid(to) || isPlant(to);
-      if (playing) sounds.playAt(placing ? to : from, placing ? 'place' : 'break', position, listener);
+      if (playing) {
+        if (actor === 'listener') sounds.playListenerImpact(from, 'break', position, listener);
+        else sounds.playAt(placing ? to : from, placing ? 'place' : 'break', position, listener);
+      }
       for (const c of changes) if ((!isSolid(c.to) && !isPlant(c.to)) && (isSolid(c.from) || isPlant(c.from))) particles.burst(c.x, c.y, c.z, c.from, normal);
     }
     rebuildMeshes(changes);
@@ -822,7 +859,7 @@ function start() {
     // Do not replay a long gap after the browser suspends a private world.
     history.update(Math.min(simulationElapsed, 1));
     updateEncounter(elapsed);
-    droppedItems.update(playing ? elapsed : 0, world);
+    droppedItems.update(history.clock.running ? elapsed : 0, world);
     pickupElapsed += elapsed;
     if (playing && history.ready && !isDowned() && !pickingUp && pickupElapsed >= 0.25) {
       pickupElapsed = 0;
@@ -830,7 +867,11 @@ function start() {
       if (droppedItems.items.some(item => Math.hypot(item.x - player.x, item.z - player.z) <= PICKUP_RADIUS && Math.abs(item.y - player.y) < 2
         && inventory.stacks.some(stack => !stack || stack.block === item.block && stack.count < STACK_LIMIT))) {
         pickingUp = true;
-        void history.request('pickup').finally(() => { pickingUp = false; });
+        void history.request('pickup').then(result => {
+          if (!result.ok || !result.picked) return;
+          if (playing) sounds.playPickup();
+          highlightHotbarPickup(hotbar, result.hotbarSlots || []);
+        }).finally(() => { pickingUp = false; });
       }
     }
     if (history.mode) chunkRenderer.update(player);
@@ -850,6 +891,8 @@ function start() {
     sky.clock.phase = history.phase();
     sky.clock.held = history.clock.held;
     const skyState = sky.update(history.clock.running ? elapsed : 0, camera);
+    sounds.updateMusic({ phase: sky.clock.phase, creature: listenerRenderer.snapshot, player, downed: isDowned(),
+      active: !!history.mode && history.ready && !document.hidden && document.hasFocus() });
     lanternLighting.update(playing ? elapsed : 0, camera.position, skyState.daylight);
     const clock = history.clock;
     const label = history.mode ? `Day ${clock.day || 1} · ${skyState.label} · ${clock.running ? 'World running' : 'World paused'}` : 'Horror · Gather, repair, endure';
@@ -859,9 +902,9 @@ function start() {
     shelterStatus.hidden = !history.mode;
     const aimedBlock = target ? world.get(target.x, target.y, target.z) : 0;
     const upkeepTarget = aimedBlock === WARD_LANTERN || aimedBlock === SALVAGE_CRATE || isSapling(aimedBlock);
-    wardHint.hidden = !playing || !target || (!upkeepTarget && !isCabinet(aimedBlock) && !(selected === REPAIR_TOOL && strength(aimedBlock) > 1));
-    if (!wardHint.hidden) wardHint.textContent = selected === REPAIR_TOOL && strength(aimedBlock) > 1 ? 'E / Use to repair · Consumes one stone or scrap' : isCabinet(aimedBlock) ? 'Shared storage · E / Use to open' : aimedBlock === SALVAGE_CRATE ? 'Salvage supply point · E / Use to gather' : isSapling(aimedBlock) ? 'Sapling · E / Use to inspect growth' : `${wardDescription(shelter?.wards.find(ward => ward.x === target.x && ward.y === target.y && ward.z === target.z))} · E / Use to manage power`;
-    strengthHint.hidden = !playing || !history.ready || !target || selected !== REPAIR_TOOL || strength(aimedBlock) <= 1;
+    wardHint.hidden = !playing || !target || (!upkeepTarget && !isCabinet(aimedBlock) && !(selected === STONE_HAMMER && isRepairable(aimedBlock)));
+    if (!wardHint.hidden) wardHint.textContent = selected === STONE_HAMMER && isRepairable(aimedBlock) ? 'E / Use to repair · Uses stone for masonry, planks for wood' : isCabinet(aimedBlock) ? 'Shared storage · E / Use to open' : aimedBlock === SALVAGE_CRATE ? 'Salvage supply point · E / Use to gather' : isSapling(aimedBlock) ? 'Sapling · E / Use to inspect growth' : `${wardDescription(shelter?.wards.find(ward => ward.x === target.x && ward.y === target.y && ward.z === target.z))} · E / Use to manage fuel`;
+    strengthHint.hidden = !playing || !history.ready || !target || selected !== STONE_HAMMER || strength(aimedBlock) <= 1;
     if (!strengthHint.hidden) {
       const max = strength(aimedBlock), remaining = chunkRenderer.damage.remaining(target.x, target.y, target.z, aimedBlock);
       const label = `${BLOCK_NAMES[buildBlock(aimedBlock)]} · ${remaining}/${max} strength`;
@@ -878,6 +921,7 @@ function start() {
       renderer.render(scene, camera);
     }
     diagnostics.frame(frameStarted, performance.now(), rendered);
+    directorDebug.frame(performance.now());
   });
 
   const nameInput = document.querySelector('#player-name');
@@ -908,7 +952,14 @@ function start() {
   history.callbacks = {
     storage(saved) { storageView.sync(saved); },
     constructionChunk({ key, damage }) { chunkRenderer.damage.setChunk(key, damage); },
-    construction(damage) { chunkRenderer.damage.set(damage); if (playing) sounds.playAt(damage.block, damage.remaining === strength(damage.block) ? 'repair' : 'hit', { x: damage.x + .5, y: damage.y + .5, z: damage.z + .5 }, camera.position); },
+    construction(damage, { by } = {}) {
+      chunkRenderer.damage.set(damage);
+      if (playing) {
+        const position = { x: damage.x + .5, y: damage.y + .5, z: damage.z + .5 };
+        if (by === 'listener') sounds.playListenerImpact(damage.block, 'hit', position, camera.position);
+        else sounds.playAt(damage.block, damage.remaining === strength(damage.block) ? 'repair' : 'hit', position, camera.position);
+      }
+    },
     listener(state) {
       const cues = listenerRenderer.sync(state);
       for (const event of cues) {
@@ -943,6 +994,7 @@ function start() {
     welcome(message) {
       encounter = { state: 'ready', revision: -1, immuneUntil: 0 }; encounterPlayers = message.players || [];
       rescueSent = null; rescueElapsed = 0; rescueHeld = false;
+      sounds.stop(); sounds.music?.reset();
       chunkRenderer.damage.clear(); listenerRenderer.sync(null); sounds.remoteSteps.clear(); cueUntil = 0;
       droppedItems.sync([]);
       Object.assign(player, message.self, { vy: 0, grounded: false, flying: false });
@@ -955,7 +1007,6 @@ function start() {
       screens.describeWorld(currentWorldDescription);
       sessionMode.dataset.mode = message.gameMode;
       sessionModeValue.textContent = 'Horror · Gather, repair, endure';
-      document.querySelector('#resource-guide').textContent = 'Leaves → saplings · Wood → biomass fuel · Repair tool + stone/scrap → repairs. ' + (message.horror?.salvage || []).map(p => `${p.name}: X ${p.x}, Z ${p.z}`).join(' · ');
       loadInventory(message);
       document.querySelector('[data-touch="drop"]').hidden = false;
       play.disabled = true;
@@ -974,7 +1025,7 @@ function start() {
     players(players) {
       encounterPlayers = players;
       receiveEncounter(players.find(p => p.id === history.selfId)?.encounter);
-      sounds.trackPlayers(players, history.selfId);
+      if (playing) sounds.trackPlayers(players, history.selfId); else sounds.remoteSteps.clear();
       if (otherPlayers.sync(players, history.selfId)) renderer.shadowMap.needsUpdate = true;
       if (history.mode === 'multiplayer') renderConnectedPlayers(players);
       if (history.mode === 'single') setConnectionStatus('Single player · Private world');
@@ -994,8 +1045,9 @@ function start() {
       for (const key of keys) chunkRenderer.mark(key);
       lanternLighting.sync(world, keys);
     },
-    edit(message) { chunkRenderer.damage.edited(message.changes); if (message.method === 'growth') rebuildMeshes(message.changes); else finishEdit(message.changes[0], undefined, message.changes); },
+    edit(message) { chunkRenderer.damage.edited(message.changes); if (message.method === 'growth') rebuildMeshes(message.changes); else finishEdit(message.changes[0], undefined, message.changes, message.by); },
     disconnected() {
+      sounds.music?.reset();
       listenerRenderer.sync(null); cueUntil = 0; encounterPlayers = []; rescueTarget = null;
       shelter = null; confirmedProtection = null; wardRenderer.sync(); shelterStatus.textContent = 'Protection unavailable · Reconnecting'; shelterStatus.dataset.state = 'checking';
       renderConnectedPlayers([], 'Not connected.');
@@ -1076,6 +1128,7 @@ function start() {
     } catch (cause) { error.hidden = false; error.textContent = cause.message; }
   });
   function showChooser() {
+    sounds.music?.reset();
     droppedItems.sync([]); shelter = null; confirmedProtection = null; wardRenderer.sync();
     shelterStatus.textContent = 'Checking shelter'; shelterStatus.dataset.state = 'checking';
     closeInventory(false);

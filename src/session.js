@@ -78,6 +78,7 @@ export class LocalSession extends MultiplayerClient {
     this.history.upkeep = this.upkeep;
     this.history.infrastructure = this.infrastructure;
     this.history.inventory = this.resources;
+    this.history.drops = this.drops;
     const x = WORLD_SIZE / 2, z = WORLD_SIZE / 2;
     const y = terrainColumn(this.world.seed, x, z).top + 1.01;
     const cabin = this.horror.cabin;
@@ -96,7 +97,7 @@ export class LocalSession extends MultiplayerClient {
     this.callbacks.clock?.(this.clock);
     this.callbacks.players?.([this.self]);
     this.callbacks.listener?.(this.listener.publicState());
-    this.callbacks.drops?.(this.drops.snapshot());
+    this.callbacks.drops?.(this.drops.publicSnapshot());
     this.publishShelter();
   }
 
@@ -153,7 +154,11 @@ export class LocalSession extends MultiplayerClient {
     // occupied clock too, as the shared host does, rather than letting slow
     // storage consume evidence, pursuit warnings, or recovery time unseen.
     this.clock.running = !this.saveError && !this.encounterSaving && !this.editing;
-    if (this.clock.running) { this.clock.advance(seconds); this.saveElapsed += seconds; }
+    if (this.clock.running) {
+      this.clock.advance(seconds); this.saveElapsed += seconds;
+      this.drops.settle(this.world);
+      if (this.drops.dirty) { this.callbacks.drops?.(this.drops.publicSnapshot()); this.drops.dirty = false; }
+    }
     if (this.clock.running && this.saveElapsed >= 5 && motionStamp(pose, this.clock) !== this.savedMotion) { this.saveElapsed = 0; void this.save(); }
     const removed = this.world.evict([pose], 5);
     if (removed.length) this.callbacks.chunks?.(removed);
@@ -167,6 +172,7 @@ export class LocalSession extends MultiplayerClient {
       this.editing = true;
       const changes = this.upkeep.step([pose]);
       if (changes.length) {
+        if (this.drops.settle(this.world)) { this.callbacks.drops?.(this.drops.publicSnapshot()); this.drops.dirty = false; }
         this.callbacks.edit?.({ changes, by: 'world', method: 'growth' }); this.publishShelter();
         void this.save().finally(() => { this.editing = false; });
       } else this.editing = false;
@@ -183,9 +189,10 @@ export class LocalSession extends MultiplayerClient {
         this.encounters.dirty = false;
         for (const result of this.encounterEvents.splice(0)) {
           if (result.changes) this.callbacks.edit?.({ changes: result.changes, by: 'listener', method: 'pressure' });
-          if (result.damage) this.callbacks.construction?.(result.damage);
+          if (result.damage) this.callbacks.construction?.(result.damage, { by: 'listener' });
         }
         this.callbacks.players?.([{ ...player.pose, id: this.selfId, name: this.name, encounter: this.encounters.publicState(player) }]);
+        if (this.drops.settle(this.world)) { this.callbacks.drops?.(this.drops.publicSnapshot()); this.drops.dirty = false; }
         this.encounterSaving = true;
         void this.save().finally(() => { this.encounterSaving = false; });
       }
@@ -251,7 +258,7 @@ export class LocalSession extends MultiplayerClient {
         // Like private block edits, retain unsaved work in memory if storage fails.
         // Publish both sides so retry/export shows the same inventory and world.
         this.callbacks.supplies?.(this.resources.snapshot());
-        this.callbacks.drops?.(this.drops.snapshot());
+        this.callbacks.drops?.(this.drops.publicSnapshot());
         if (!await this.save()) return { ok: false, reason: 'storage' };
         return result;
       } finally { this.editing = false; }
@@ -285,6 +292,7 @@ export class LocalSession extends MultiplayerClient {
       else return { ok: false, reason: 'invalid' };
       if (result.ok) {
         if (this.resources) this.callbacks.supplies?.(this.resources.snapshot());
+        if (result.dropsChanged) this.callbacks.drops?.(this.drops.publicSnapshot());
         if (result.changes) this.callbacks.edit?.({ changes: result.changes, by: this.selfId, method });
         if (result.damage) this.callbacks.construction?.(result.damage);
         this.publishShelter();

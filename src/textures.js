@@ -1,14 +1,36 @@
 import * as THREE from 'three';
-import { GRASS, DIRT, WOOD, LEAVES, SAND, WATER, PLANKS, BRICKS, GLASS, LANTERN, WARD_LANTERN, CONCRETE, REINFORCED_PANEL, SECURITY_DOOR, SCRAP, BIOFUEL, REPAIR_TOOL, SALVAGE_CRATE, isSapling, buildBlock, FLOWER_COLORS, isDoor, isSlab, isCabinet, cabinetFacing, doorState } from './world.js';
+import { GRASS, DIRT, WOOD, LEAVES, SAND, WATER, PLANKS, BRICKS, GLASS, LANTERN, WARD_LANTERN, STONE_BRICKS, BRACED_TIMBER, BRACED_DOOR, WOODEN_PEGS, CHARCOAL, STONE_HAMMER, SALVAGE_CRATE, isSapling, buildBlock, FLOWER_COLORS, isDoor, isSlab, isCabinet, cabinetFacing, doorState } from './world.js';
 
-export const TILE_SIZE = 32;
+export const TILE_SIZE = 16;
 // Replicated borders keep neighboring materials out of the texture's mipmaps.
-export const TILE_PADDING = 16;
+export const TILE_PADDING = 8;
 export const TILE_STRIDE = TILE_SIZE + TILE_PADDING * 2;
 export const ATLAS_WIDTH = TILE_STRIDE * 4;
 export const ATLAS_HEIGHT = TILE_STRIDE * 8;
-export const TILES = { GRASS_TOP: 0, GRASS_SIDE: 1, DIRT: 2, STONE: 3, BARK: 4, WOOD_END: 5, LEAVES: 6, SAND: 7, WATER: 8, PLANKS: 9, BRICKS: 10, GLASS: 11, DOOR_BOTTOM: 12, DOOR_TOP: 13, LANTERN: 14, LANTERN_TOP: 15, WARD_LANTERN: 16, CONCRETE: 17, REINFORCED: 18, CABINET_FRONT: 19, CABINET_SIDE: 20, CABINET_TOP: 21, SECURITY_BOTTOM: 22, SECURITY_TOP: 23, SAPLING: 24, SCRAP: 25, BIOFUEL: 26, REPAIR_TOOL: 27, SALVAGE_FRONT: 28, SALVAGE_SIDE: 29 };
-const lanternFrame = (x, y) => x < 3 || x > 28 || y < 3 || y > 28 || x === 15 || x === 16;
+export const TILES = { GRASS_TOP: 0, GRASS_SIDE: 1, DIRT: 2, STONE: 3, BARK: 4, WOOD_END: 5, LEAVES: 6, SAND: 7, WATER: 8, PLANKS: 9, BRICKS: 10, GLASS: 11, DOOR_BOTTOM: 12, DOOR_TOP: 13, LANTERN: 14, LANTERN_TOP: 15, WARD_LANTERN: 16, STONE_BRICKS: 17, BRACED_TIMBER: 18, CHEST_FRONT: 19, CHEST_SIDE: 20, CHEST_TOP: 21, BRACED_DOOR_BOTTOM: 22, BRACED_DOOR_TOP: 23, SAPLING: 24, WOODEN_PEGS: 25, CHARCOAL: 26, STONE_HAMMER: 27, SALVAGE_FRONT: 28, SALVAGE_SIDE: 29 };
+const lanternFrame = (x, y) => x < 2 || x > 13 || y < 2 || y > 13 || x === 7 || x === 8;
+const ITEM_TILES = new Set([TILES.SAPLING, TILES.WOODEN_PEGS, TILES.CHARCOAL, TILES.STONE_HAMMER]);
+
+function itemPixel(tile, x, y) {
+  const shape = (x, y) => {
+    if (x < 0 || x > 15 || y < 0 || y > 15) return false;
+    if (tile === TILES.SAPLING) return x >= 7 && x <= 8 && y >= 7 && y <= 14
+      || Math.abs(x - 7) + Math.abs(y - 4) <= 4 || Math.abs(x - 4) + Math.abs(y - 7) <= 3 || Math.abs(x - 11) + Math.abs(y - 7) <= 3;
+    if (tile === TILES.WOODEN_PEGS) return [[-3, 2, 10], [1, 3, 13], [5, 6, 14]].some(([offset, low, high]) => y >= low && y <= high && Math.abs(x - (y + offset)) <= 1);
+    if (tile === TILES.CHARCOAL) return y >= 3 && y <= 13 && x >= 2 && x <= 13 && Math.abs(x - 8) + Math.abs(y - 8) <= 8 && !(x < 5 && y < 5) && !(x > 11 && y > 11);
+    return x >= 6 && x <= 14 && y >= 2 && y <= 6 || y >= 6 && y <= 14 && Math.abs(x + y - 16) <= 1;
+  };
+  if (!shape(x, y)) return [0, 0, 0, 0];
+  const edge = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => !shape(x + dx, y + dy));
+  let color;
+  if (tile === TILES.SAPLING) color = x >= 7 && x <= 8 && y >= 9 ? edge ? [87, 53, 24] : [171, 119, 55]
+    : edge ? [31, 67, 24] : x + y < 12 ? [124, 184, 65] : [69, 136, 42];
+  else if (tile === TILES.WOODEN_PEGS) color = edge ? [84, 48, 22] : y % 4 === 2 ? [235, 190, 112] : [193, 137, 65];
+  else if (tile === TILES.CHARCOAL) color = edge ? [14, 17, 21] : y < 7 && x < 9 ? [99, 105, 111] : x + y < 18 ? [53, 58, 64] : [29, 33, 39];
+  else color = y <= 6 ? edge ? [55, 59, 64] : y <= 3 ? [192, 198, 196] : [127, 139, 142]
+    : edge ? [91, 54, 24] : [194, 138, 68];
+  return [...shade(color, (noise(x, y, tile) - .5) * 10), 255];
+}
 
 function noise(x, y, seed) {
   let value = Math.imul(x + seed * 17, 374761393) ^ Math.imul(y + seed * 31, 668265263);
@@ -23,13 +45,13 @@ function shade(color, amount) {
 function grassPixel(x, y) {
   const n = noise(x, y, 1);
   const patch = noise(Math.floor(x / 2), Math.floor(y / 2), 2);
-  return shade([99, 132, 80], (n - 0.5) * 18 + (patch - 0.5) * 15 + (n > 0.88 ? 13 : 0));
+  return shade([133, 170, 83], (n - 0.5) * 18 + (patch - 0.5) * 15 + (n > 0.88 ? 13 : 0));
 }
 
 function dirtPixel(x, y) {
   const n = noise(x, y, 3);
   const grain = noise(Math.floor(x / 2), Math.floor(y / 2), 4);
-  const pebble = n > 0.95 ? [166, 151, 123] : [122, 102, 83];
+  const pebble = n > 0.95 ? [166, 151, 123] : [158, 119, 80];
   return shade(pebble, (grain - 0.5) * 19 + (n - 0.5) * 14);
 }
 
@@ -38,14 +60,14 @@ function texturePixel(tile, x, y) {
     case TILES.GRASS_TOP:
       return grassPixel(x, y);
     case TILES.GRASS_SIDE: {
-      const fringe = 5 + Math.floor(noise(Math.floor(x / 2), 0, 5) * 5);
+      const fringe = 3 + Math.floor(noise(x, 0, 5) * 3);
       return y < fringe ? shade(grassPixel(x, y), -8) : dirtPixel(x, y);
     }
     case TILES.DIRT:
       return dirtPixel(x, y);
     case TILES.STONE: {
       const patch = noise(Math.floor(x / 3), Math.floor(y / 3), 6);
-      const crack = (y === 10 + Math.floor(x / 5) || y === 26 - Math.floor(x / 6))
+      const crack = (y === 5 + Math.floor(x / 4) || y === 12 - Math.floor(x / 5))
         && noise(x, y, 7) > 0.35;
       return shade([153, 161, 158], (patch - 0.5) * 22 + (noise(x, y, 8) - 0.5) * 12 - (crack ? 22 : 0));
     }
@@ -55,14 +77,14 @@ function texturePixel(tile, x, y) {
       return shade([145, 109, 67], streak + (noise(x, Math.floor(y / 3), 9) - 0.5) * 15);
     }
     case TILES.WOOD_END: {
-      const radius = Math.hypot(x - 15.5, (y - 15.5) * 1.05);
+      const radius = Math.hypot(x - 7.5, (y - 7.5) * 1.05);
       const ring = Math.floor(radius + noise(x, y, 10) * 0.4) % 3 === 0;
       return shade([195, 161, 109], (ring ? -25 : 4) + (noise(x, y, 11) - 0.5) * 10);
     }
     case TILES.LEAVES: {
       const cluster = noise(Math.floor(x / 3), Math.floor(y / 3), 12);
       const edge = x % 3 === 0 || y % 3 === 0;
-      return shade([64, 101, 70], (cluster - 0.5) * 33 + (noise(x, y, 13) - 0.5) * 14 + (edge ? -8 : 5));
+      return shade([86, 132, 62], (cluster - 0.5) * 33 + (noise(x, y, 13) - 0.5) * 14 + (edge ? -8 : 5));
     }
     case TILES.SAND: {
       const grain = noise(x, y, 14);
@@ -73,90 +95,104 @@ function texturePixel(tile, x, y) {
       return shade([83, 157, 177], ripple * 4 + (noise(x, y, 15) - 0.5) * 5);
     }
     case TILES.PLANKS: {
-      const seam = y % 8 === 0;
-      const grain = (noise(x, Math.floor(y / 2), 16) - .5) * 12;
-      return shade(seam ? [66, 72, 73] : [118, 127, 126], grain + (y % 8 === 1 ? 9 : 0));
+      const row = Math.floor(y / 4);
+      const seam = y % 4 === 0 || (x + row % 2 * 8) % 16 === 0;
+      const grain = (noise(x, Math.floor(y / 2), 16) - 0.5) * 14;
+      return shade(seam ? [136, 99, 57] : [188, 148, 91], grain + (y % 4 === 1 ? 7 : 0));
     }
     case TILES.BRICKS: {
-      const row = Math.floor(y / 16), mortar = y % 16 === 0 || (x + row % 2 * 16) % 32 === 0;
-      return shade(mortar ? [68, 75, 78] : [137, 143, 143], (noise(x, y, 18) - .5) * 14);
+      const row = Math.floor(y / 4);
+      const column = Math.floor((x + row % 2 * 4) / 8);
+      const mortar = y % 4 === 0 || (x + row % 2 * 4) % 8 === 0;
+      const variation = (noise(column, row, 17) - 0.5) * 18 + (noise(x, y, 18) - 0.5) * 10;
+      return shade(mortar ? [173, 162, 140] : [168, 89, 65], variation);
     }
     case TILES.GLASS: {
-      const edge = x === 0 || x === 31 || y === 0 || y === 31;
-      const glint = x + y === 16 || x + y === 17 || x + y === 44;
+      const edge = x === 0 || x === 15 || y === 0 || y === 15;
+      const glint = x + y === 8 || x + y === 9 || x + y === 22;
       return shade(edge ? [143, 194, 205] : glint ? [226, 245, 249] : [182, 223, 231], (noise(x, y, 19) - 0.5) * 10);
     }
     case TILES.DOOR_BOTTOM:
-    case TILES.DOOR_TOP:
-    case TILES.SECURITY_BOTTOM:
-    case TILES.SECURITY_TOP: {
-      const secure = tile === TILES.SECURITY_BOTTOM || tile === TILES.SECURITY_TOP;
-      const top = tile === TILES.DOOR_TOP || tile === TILES.SECURITY_TOP;
-      const frame = x < 3 || x > 28 || y < 2 || y > 29;
-      const window = top && x >= 9 && x <= 22 && y >= 6 && y <= 24;
-      const handle = !top && x >= 23 && x <= 27 && y >= 3 && y <= 5;
-      const brace = secure && (y === 10 || y === 11 || y === 24 || y === 25);
-      const bolt = secure && (x === 4 || x === 27) && y % 8 === 4;
-      return shade(handle || bolt ? [185, 199, 198] : frame || brace ? [46, 57, 64] : window ? [66, 116, 126] : secure ? [76, 99, 109] : [160, 168, 166], (noise(x, y, 20) - .5) * 8);
+    case TILES.DOOR_TOP: {
+      const frame = x < 2 || x > 13 || y < 2 || y > 13;
+      const panelEdge = x === 3 || x === 12 || y === 4 || y === 12;
+      const handle = tile === TILES.DOOR_BOTTOM && x >= 11 && x <= 13 && y >= 2 && y <= 3;
+      return shade(handle ? [219, 183, 80] : frame ? [143, 101, 57] : panelEdge ? [131, 92, 51] : [179, 135, 78], (noise(x, Math.floor(y / 2), 20) - 0.5) * 14);
     }
     case TILES.LANTERN: {
-      const glow = Math.max(0, 1 - Math.hypot(x - 15.5, y - 15.5) / 23);
-      return lanternFrame(x, y) ? shade([45, 53, 61], (noise(x, y, 21) - 0.5) * 16)
-        : [Math.round(204 + glow * 40), Math.round(220 + glow * 30), 244];
-    }
-    case TILES.WARD_LANTERN: {
-      const rune = Math.abs(x - 15.5) + Math.abs(y - 15.5) < 11 && (x === 10 || x === 21 || y === 10 || y === 21);
-      return lanternFrame(x, y) ? shade([44, 69, 67], (noise(x, y, 23) - .5) * 16)
-        : rune ? [230, 255, 230] : shade([102, 200, 181], (noise(x, y, 24) - .5) * 12);
+      const glow = Math.max(0, 1 - Math.hypot(x - 7.5, y - 7.5) / 11);
+      return lanternFrame(x, y) ? shade([52, 59, 58], (noise(x, y, 21) - 0.5) * 16)
+        : [255, Math.round(161 + glow * 61), Math.round(49 + glow * 81)];
     }
     case TILES.LANTERN_TOP:
-      return shade([55, 62, 61], (noise(x, y, 22) - 0.5) * 19 + (x === 3 || x === 28 || y === 3 || y === 28 ? 15 : 0));
-    case TILES.CONCRETE: {
-      const pore = noise(x, y, 31), seam = x === 0 || y === 0;
-      const bolt = (x === 5 || x === 26) && (y === 5 || y === 26);
-      return shade(seam ? [98, 106, 108] : bolt ? [78, 88, 92] : [161, 169, 169], (pore - .5) * 11 - (pore > .96 ? 15 : 0));
+      return shade([55, 62, 61], (noise(x, y, 22) - 0.5) * 19 + (x === 2 || x === 13 || y === 2 || y === 13 ? 15 : 0));
+    case TILES.WARD_LANTERN: {
+      const rune = (x === 5 || x === 10) && y >= 5 && y <= 10
+        || (y === 5 || y === 10) && x >= 5 && x <= 10;
+      return lanternFrame(x, y) ? shade([52, 59, 58], (noise(x, y, 23) - .5) * 16)
+        : rune ? [220, 255, 193] : shade([91, 174, 104], (noise(x, y, 24) - .5) * 20);
     }
-    case TILES.REINFORCED: {
-      const seam = x < 2 || x > 29 || y < 2 || y > 29;
-      const brace = Math.abs(x - y) < 2 || Math.abs(x + y - 31) < 2;
-      const screw = (x === 4 || x === 27) && (y === 4 || y === 27);
-      return shade(screw ? [185, 198, 202] : seam ? [43, 54, 64] : brace ? [87, 108, 121] : [64, 84, 98], (noise(x, y, 32) - .5) * 7);
+    case TILES.STONE_BRICKS: {
+      const row = Math.floor(y / 8), offset = row % 2 * 8;
+      const mortar = y % 8 === 0 || (x + offset) % 16 === 0;
+      const edge = y % 8 === 1 || (x + offset) % 16 === 1;
+      return shade(mortar ? [83, 85, 78] : [143, 145, 134], (noise(x, y, 31) - .5) * 22 + (edge ? 17 : 0));
     }
-    case TILES.CABINET_FRONT: {
-      const frame = x < 2 || x > 29 || y < 2 || y > 29 || x === 15;
-      const vent = y >= 21 && y <= 26 && y % 2 === 1 && x > 4 && x < 27;
-      const handle = (x === 12 || x === 18) && y >= 9 && y <= 16;
-      const label = x >= 5 && x <= 10 && y >= 5 && y <= 7;
-      return shade(handle ? [192, 204, 203] : label ? [167, 195, 186] : frame || vent ? [38, 48, 58] : [89, 108, 118], (noise(x, y, 33) - .5) * 7);
+    case TILES.BRACED_TIMBER: {
+      const frame = x < 2 || x > 13 || y < 2 || y > 13;
+      const brace = Math.abs(x - y) < 2 || Math.abs(x + y - 15) < 2;
+      const peg = (x === 2 || x === 13) && (y === 2 || y === 13);
+      const seam = x % 4 === 0;
+      return shade(peg ? [91, 57, 27] : frame ? [105, 69, 33] : brace ? [161, 114, 57] : seam ? [119, 79, 38] : [187, 139, 76], (noise(x, Math.floor(y / 2), 32) - .5) * 20);
     }
-    case TILES.CABINET_SIDE:
-    case TILES.CABINET_TOP:
-      return shade(x < 2 || y < 2 || x > 29 || y > 29 ? [43, 54, 64] : tile === TILES.CABINET_TOP ? [98, 115, 124] : [80, 98, 109], (noise(x, y, 34) - .5) * 7);
+    case TILES.CHEST_FRONT: {
+      const frame = x < 2 || x > 13 || y < 2 || y > 13;
+      const lid = y === 5 || y === 6;
+      const latch = x >= 7 && x <= 8 && y >= 5 && y <= 9;
+      const seam = x % 4 === 0;
+      return shade(latch ? [211, 176, 78] : frame || lid ? [89, 55, 26] : seam ? [137, 87, 39] : [178, 123, 56], (noise(x, Math.floor(y / 2), 33) - .5) * 22);
+    }
+    case TILES.CHEST_SIDE:
+    case TILES.CHEST_TOP: {
+      const frame = x < 2 || y < 2 || x > 13 || y > 13;
+      const lid = tile === TILES.CHEST_SIDE && y === 5;
+      const seam = x % 4 === 0;
+      return shade(frame || lid ? [89, 55, 26] : seam ? [137, 87, 39] : [170, 116, 51], (noise(x, Math.floor(y / 2), 34) - .5) * 22);
+    }
+    case TILES.BRACED_DOOR_BOTTOM:
+    case TILES.BRACED_DOOR_TOP: {
+      const frame = x < 2 || x > 13 || y < 2 || y > 13;
+      const brace = Math.abs(x - y) < 2 || y === 4 || y === 11;
+      const peg = (x === 3 || x === 12) && (y === 4 || y === 11);
+      const handle = tile === TILES.BRACED_DOOR_BOTTOM && x >= 11 && x <= 12 && y >= 2 && y <= 3;
+      return shade(handle ? [211, 176, 78] : peg ? [77, 46, 23] : frame ? [93, 57, 27] : brace ? [146, 96, 45] : [178, 125, 65], (noise(x, Math.floor(y / 2), 35) - .5) * 20);
+    }
     case TILES.SAPLING: {
-      const stem = x >= 14 && x <= 17 && y >= 8;
-      const leaf = Math.abs(x - 16) + Math.abs(y - 10) < 11 || x > 5 && x < 15 && y > 16 && y < 21;
-      return shade(stem ? [122, 139, 102] : leaf ? [103, 169, 122] : [32, 60, 53], (noise(x, y, 40) - .5) * 12);
+      const stem = x >= 7 && x <= 8 && y >= 4;
+      const leaf = Math.abs(x - 8) + Math.abs(y - 5) < 6 || x > 2 && x < 8 && y > 7 && y < 11;
+      return shade(stem ? [126, 92, 49] : leaf ? [86, 132, 62] : [38, 63, 29], (noise(x, y, 40) - .5) * 26);
     }
-    case TILES.SCRAP: {
-      const edge = Math.abs(x - y) < 4 || y > 20 && x > 4 && x < 27;
-      return shade(edge ? [158, 173, 182] : [54, 70, 82], (noise(x, y, 41) - .5) * 18);
+    case TILES.WOODEN_PEGS: {
+      const peg = Math.abs(x - y) < 2 && x > 2 && x < 14 || Math.abs(x - y - 6) < 2 && x > 7 && x < 15;
+      return shade(peg ? [179, 129, 66] : [65, 45, 26], (noise(x, y, 41) - .5) * 24);
     }
-    case TILES.BIOFUEL: {
-      const body = x >= 7 && x <= 24 && y >= 4 && y <= 28;
-      const band = y > 12 && y < 21;
-      return shade(body ? band ? [105, 183, 145] : [151, 168, 174] : [37, 55, 64], (noise(x, y, 42) - .5) * 10);
+    case TILES.CHARCOAL: {
+      const lump = Math.abs(x - 8) + Math.abs(y - 8) < 9;
+      const crack = (x + y) % 5 === 0;
+      return shade(lump ? crack ? [31, 29, 27] : [69, 65, 58] : [25, 24, 21], (noise(x, y, 42) - .5) * 22);
     }
-    case TILES.REPAIR_TOOL: {
-      const shaft = Math.abs(x + y - 31) < 4;
-      const head = Math.hypot(x - 23, y - 8) < 7;
-      return shade(head ? [167, 186, 193] : shaft ? [210, 168, 76] : [37, 55, 64], (noise(x, y, 43) - .5) * 12);
+    case TILES.STONE_HAMMER: {
+      const shaft = Math.abs(x + y - 15) < 2;
+      const head = Math.hypot(x - 11, y - 4) < 4;
+      return shade(head ? [147, 146, 133] : shaft ? [156, 111, 59] : [58, 55, 44], (noise(x, y, 43) - .5) * 24);
     }
     case TILES.SALVAGE_FRONT:
     case TILES.SALVAGE_SIDE: {
-      const frame = x < 3 || x > 28 || y < 3 || y > 28;
-      const hazard = y > 22 && y < 28;
-      const label = tile === TILES.SALVAGE_FRONT && x > 6 && x < 25 && y > 7 && y < 17;
-      return shade(frame ? [54, 66, 72] : hazard ? (x + y) % 12 < 6 ? [202, 166, 71] : [44, 56, 64] : label ? [171, 198, 192] : [82, 105, 115], (noise(x, y, tile) - .5) * 11);
+      const frame = x < 2 || x > 13 || y < 2 || y > 13;
+      const band = y === 3 || y === 12;
+      const latch = tile === TILES.SALVAGE_FRONT && x >= 7 && x <= 8 && y >= 6 && y <= 10;
+      const seam = x % 4 === 0;
+      return shade(latch ? [217, 187, 91] : band ? [91, 89, 74] : frame || seam ? [106, 73, 37] : [164, 121, 62], (noise(x, y, tile) - .5) * 20);
     }
     default:
       throw new Error(`Unknown texture tile: ${tile}`);
@@ -169,8 +205,8 @@ export function generateTextureTiles() {
     for (let y = 0; y < TILE_SIZE; y++) {
       for (let x = 0; x < TILE_SIZE; x++) {
         const offset = (x + y * TILE_SIZE) * 4;
-        const alpha = tile === TILES.GLASS ? (x === 0 || x === 31 || y === 0 || y === 31 ? 190 : x + y === 16 || x + y === 17 || x + y === 44 ? 80 : 18) : 255;
-        pixels.set([...texturePixel(tile, x, y), alpha], offset);
+        const alpha = tile === TILES.GLASS ? (x === 0 || x === 15 || y === 0 || y === 15 ? 190 : x + y === 8 || x + y === 9 || x + y === 22 ? 80 : 18) : 255;
+        pixels.set(ITEM_TILES.has(tile) ? itemPixel(tile, x, y) : [...texturePixel(tile, x, y), alpha], offset);
       }
     }
     return pixels;
@@ -181,19 +217,19 @@ const CABINET_FRONTS = [[0, 1], [-1, 0], [0, -1], [1, 0]];
 
 export function faceTile(block, normalY, normalX = 0, normalZ = 0) {
   if (isSapling(block)) return TILES.SAPLING;
-  if (block === SCRAP) return TILES.SCRAP;
-  if (block === BIOFUEL) return TILES.BIOFUEL;
-  if (block === REPAIR_TOOL) return TILES.REPAIR_TOOL;
+  if (block === WOODEN_PEGS) return TILES.WOODEN_PEGS;
+  if (block === CHARCOAL) return TILES.CHARCOAL;
+  if (block === STONE_HAMMER) return TILES.STONE_HAMMER;
   if (block === SALVAGE_CRATE) return !normalY && (normalZ > 0 || !normalX && !normalZ) ? TILES.SALVAGE_FRONT : TILES.SALVAGE_SIDE;
-  if (block === CONCRETE) return TILES.CONCRETE;
-  if (block === REINFORCED_PANEL) return TILES.REINFORCED;
+  if (block === STONE_BRICKS) return TILES.STONE_BRICKS;
+  if (block === BRACED_TIMBER) return TILES.BRACED_TIMBER;
   if (isCabinet(block)) {
-    if (normalY) return TILES.CABINET_TOP;
+    if (normalY) return TILES.CHEST_TOP;
     const [x, z] = CABINET_FRONTS[cabinetFacing(block)];
     // Inventory previews request a side without a world-space normal.
-    return !normalX && !normalZ || normalX === x && normalZ === z ? TILES.CABINET_FRONT : TILES.CABINET_SIDE;
+    return !normalX && !normalZ || normalX === x && normalZ === z ? TILES.CHEST_FRONT : TILES.CHEST_SIDE;
   }
-  if (isDoor(block) && buildBlock(block) === SECURITY_DOOR) return doorState(block).upper ? TILES.SECURITY_TOP : TILES.SECURITY_BOTTOM;
+  if (isDoor(block) && buildBlock(block) === BRACED_DOOR) return doorState(block).upper ? TILES.BRACED_DOOR_TOP : TILES.BRACED_DOOR_BOTTOM;
   if (block === GRASS) return normalY > 0 ? TILES.GRASS_TOP : normalY < 0 ? TILES.DIRT : TILES.GRASS_SIDE;
   if (block === DIRT) return TILES.DIRT;
   if (block === WOOD) return normalY === 0 ? TILES.BARK : TILES.WOOD_END;
@@ -281,7 +317,7 @@ export function createLanternEmissiveMap() {
   context.fillStyle = '#000';
   context.fillRect(0, 0, ATLAS_WIDTH, ATLAS_HEIGHT);
   for (const tile of [TILES.LANTERN, TILES.WARD_LANTERN]) {
-    context.fillStyle = tile === TILES.WARD_LANTERN ? '#9ae6cf' : '#dcefff';
+    context.fillStyle = tile === TILES.WARD_LANTERN ? '#a5e68c' : '#ffc170';
     const ox = tile % 4 * TILE_STRIDE + TILE_PADDING;
     const oy = Math.floor(tile / 4) * TILE_STRIDE + TILE_PADDING;
     for (let y = 0; y < TILE_SIZE; y++) for (let x = 0; x < TILE_SIZE; x++) {

@@ -1,7 +1,8 @@
 import test from 'node:test';
+import { primeRecordedSounds, recordedPCM } from './support/audio.js';
 import assert from 'node:assert/strict';
 import { World, SIZE, GRASS, DIRT, STONE, WOOD, LEAVES, SAND, WATER, PLANKS, BRICKS, GLASS, DOOR, LANTERN, SLAB, RED_FLOWER, doorBlock, stepPlayer } from '../src/world.js';
-import { FootstepTracker, WaterSoundTracker, GameSounds, synthesizeSound, soundGain, SOUND_DISTANCE } from '../src/sound.js';
+import { FootstepTracker, WaterSoundTracker, GameSounds, soundRecipe, soundGain, SOUND_DISTANCE } from '../src/sound.js';
 
 test('positional sounds fade with three-dimensional distance and stop at 32 blocks', () => {
   const listener = { x: 100, y: 10, z: 200 };
@@ -21,10 +22,10 @@ test('inaudible edits allocate no audio and audible effects clean up their gain 
   const sounds = new GameSounds(), sources = [], gains = [];
   sounds.master = { gain: { value: 0.45 } };
   sounds.context = {
-    state: 'running', sampleRate: 44100,
+    state: 'running', currentTime: 0, sampleRate: 44100,
     createBuffer() { return { copyToChannel() {} }; },
     createBufferSource() {
-      const source = { connect(target) { this.target = target; }, start() { this.started = true; },
+      const source = { playbackRate: {}, connect(target) { this.target = target; }, start() { this.started = true; },
         stop() { this.onended(); }, disconnect() { this.disconnected = true; } };
       sources.push(source); return source;
     },
@@ -33,18 +34,20 @@ test('inaudible edits allocate no audio and audible effects clean up their gain 
       gains.push(gain); return gain;
     },
   };
+  primeRecordedSounds(sounds);
+  const cached = sounds.buffers.size;
   const listener = { x: 0, y: 0, z: 0 };
   sounds.playAt(STONE, 'break', { ...listener, x: 32 }, listener);
   sounds.playAt(DOOR, 'open', { ...listener, y: 50 }, listener);
   assert.equal(sources.length, 0);
-  assert.equal(sounds.buffers.size, 0);
+  assert.equal(sounds.buffers.size, cached);
   sounds.playAt(DOOR, 'close', { ...listener, x: 17 }, listener);
   assert.equal(sources[0].started, true);
   assert.equal(sources[0].target, gains[0]);
   assert.equal(gains[0].target, sounds.master);
-  assert.equal(gains[0].gain.value, 0.25);
+  assert.equal(gains[0].gain.value, 0.25 * soundRecipe(DOOR, 'close')[0].gain);
   sounds.play(WATER, 'swim');
-  assert.equal(gains[1].gain.value, 1, 'local movement sounds retain their volume');
+  assert.equal(gains[1].gain.value, soundRecipe(WATER, 'swim')[0].gain, 'local wading uses its quiet recorded mix');
   sounds.stop();
   assert.equal(sounds.active.size, 0);
   assert.ok(sources.every(source => source.disconnected));
@@ -54,32 +57,24 @@ test('inaudible edits allocate no audio and audible effects clean up their gain 
   assert.equal(sources.length, 2);
 });
 
-test('all material sounds are distinct, bounded, repeatable, and fade out', () => {
-  for (const action of ['step', 'place', 'break']) {
-    const signatures = new Set();
-    for (const material of [GRASS, DIRT, STONE, WOOD, LEAVES, SAND, WATER, PLANKS, BRICKS, GLASS, DOOR, LANTERN, SLAB, RED_FLOWER]) {
-      const sound = synthesizeSound(material, action, 44100);
-      assert.deepEqual(sound, synthesizeSound(material, action, 44100));
-      assert.ok(sound.length > 2000 && sound.length < 44100);
-      assert.equal(Math.abs(sound[0]), 0);
-      let energy = 0;
-      let tailEnergy = 0;
-      for (let i = 0; i < sound.length; i++) {
-        assert.ok(Number.isFinite(sound[i]) && Math.abs(sound[i]) < 1, 'sound must not clip');
-        energy += sound[i] ** 2;
-        if (i > sound.length * 0.75) tailEnergy += sound[i] ** 2;
-      }
-      assert.ok(energy > 0.1, 'effect must be audible');
-      assert.ok(tailEnergy < energy * 0.02, 'effect should fade smoothly');
-      signatures.add(Buffer.from(sound.buffer).toString('base64'));
-    }
-    assert.equal(signatures.size, 14);
+test('recorded material families use distinct samples with natural tails and no clipping', () => {
+  const signatures = new Set();
+  for (const material of [GRASS, STONE, WOOD, LEAVES, WATER, GLASS, LANTERN]) {
+    const recipe = soundRecipe(material, 'break');
+    assert.ok(recipe.length); assert.deepEqual(recipe, soundRecipe(material, 'break'));
+    const sound = recordedPCM(recipe[0].file);
+    assert.ok(sound.length > 2000 && sound.length < 44100 * 4);
+    assert.ok(sound.every(value => Number.isFinite(value) && Math.abs(value) <= .8));
+    assert.ok(sound.some(value => Math.abs(value) > .1));
+    assert.equal(sound.at(-1), 0);
+    signatures.add(recipe[0].file);
   }
+  assert.equal(signatures.size, 7);
 });
 
-test('door states share material sounds with distinct opening and closing effects', () => {
-  assert.deepEqual(synthesizeSound(doorBlock(3, true, true), 'open', 44100), synthesizeSound(DOOR, 'open', 44100));
-  assert.notDeepEqual(synthesizeSound(DOOR, 'open', 44100), synthesizeSound(DOOR, 'close', 44100));
+test('door states share recorded material sounds with distinct opening and closing effects', () => {
+  assert.deepEqual(soundRecipe(doorBlock(3, true, true), 'open'), soundRecipe(DOOR, 'open'));
+  assert.notDeepEqual(soundRecipe(DOOR, 'open'), soundRecipe(DOOR, 'close'));
 });
 
 function ground() {
@@ -171,27 +166,10 @@ test('water audio ignores dry banks and flight, and does not splash at submerged
   assert.equal(tracker.wet, true);
 });
 
-test('splash and swimming effects are audible, distinct, bounded, and fade out', () => {
-  const sounds = ['splash', 'swim'].map(action => synthesizeSound(WATER, action, 44100));
-  assert.notDeepEqual(sounds[0], sounds[1]);
-  for (const samples of sounds) {
-    assert.equal(Math.abs(samples[0]), 0);
-    assert.ok(samples.every(sample => Number.isFinite(sample) && Math.abs(sample) < 1));
-    const energy = samples.reduce((sum, sample) => sum + sample * sample, 0);
-    const tail = samples.slice(Math.floor(samples.length * 0.75)).reduce((sum, sample) => sum + sample * sample, 0);
-    assert.ok(energy > 0.01);
-    assert.ok(tail < energy * 0.02);
-  }
-});
-
-test('water movement is a soft background sound compared with footsteps and entry splashes', () => {
-  const rms = samples => Math.sqrt(samples.reduce((sum, sample) => sum + sample * sample, 0) / samples.length);
-  for (let variant = 0; variant < 3; variant++) {
-    const swim = rms(synthesizeSound(WATER, 'swim', 44100, variant));
-    const step = rms(synthesizeSound(GRASS, 'step', 44100, variant));
-    const splash = rms(synthesizeSound(WATER, 'splash', 44100, variant));
-    assert.ok(swim > 0, 'water movement remains audible');
-    assert.ok(swim < step * 0.3, 'wading should sit well below regular footsteps');
-    assert.ok(swim < splash * 0.15, 'entry splashes remain distinct from quiet wading');
-  }
+test('water entry layers splashes while wading stays much quieter than footsteps', () => {
+  const swim = soundRecipe(WATER, 'swim'), splash = soundRecipe(WATER, 'splash'), step = soundRecipe(GRASS, 'step');
+  assert.equal(swim.length, 1); assert.equal(splash.length, 2);
+  assert.ok(swim[0].file.includes('wet'));
+  assert.ok(swim[0].gain < step[0].gain * .3);
+  assert.ok(swim[0].gain < splash.reduce((sum, layer) => sum + layer.gain, 0) * .15);
 });

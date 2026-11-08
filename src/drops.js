@@ -1,10 +1,31 @@
-import { HEIGHT, SIZE, isSolid, blockBounds } from './world.js';
+import { HEIGHT, SIZE, isSolid, blockBounds, buildBlock, doorState } from './world.js';
 import { MATERIALS, STACK_LIMIT, INVENTORY_SIZE } from './inventory.js';
 
 export const MAX_DROPS = 256;
-export const PICKUP_RADIUS = 1.25;
+export const PICKUP_RADIUS = 1;
 const blocks = new Set(MATERIALS.map(item => item.id));
 const RADIUS = 0.16;
+
+// Read only resident terrain. An item must wait at an unloaded boundary rather
+// than fall through terrain that has not arrived or generate a chunk itself.
+function floorBelow(world, item) {
+  let floor = 0;
+  for (let y = Math.floor(item.y); y >= 0; y--) {
+    for (let x = Math.floor(item.x - RADIUS); x <= Math.floor(item.x + RADIUS); x++) {
+      for (let z = Math.floor(item.z - RADIUS); z <= Math.floor(item.z + RADIUS); z++) {
+        if (world.getChunk && !world.getChunk(Math.floor(x / 16), Math.floor(z / 16), false)) return null;
+        if (world.isAreaReady && !world.isAreaReady(x + .5, z + .5)) return null;
+        const block = world.get(x, y, z);
+        if (!isSolid(block)) continue;
+        const b = blockBounds(block, x, y, z);
+        if (b.maxY <= item.y + 1e-6 && item.x + RADIUS > b.minX && item.x - RADIUS < b.maxX
+          && item.z + RADIUS > b.minZ && item.z - RADIUS < b.maxZ) floor = Math.max(floor, b.maxY);
+      }
+    }
+    if (floor > 0) break;
+  }
+  return floor + RADIUS + 1e-5;
+}
 
 export function validDrops(drops, size) {
   if (!Array.isArray(drops) || drops.length > MAX_DROPS) return false;
@@ -48,8 +69,43 @@ function clearPath(world, from, to) {
 }
 
 export class ItemDrops {
+  dirty = false;
+  origins = new Map();
   constructor(saved = []) { this.items = saved.map(item => ({ ...item })); }
   snapshot() { return this.items.map(item => ({ ...item })); }
+  publicSnapshot() {
+    const items = this.items.map(item => this.origins.has(item.id) ? { ...item, spawnY: this.origins.get(item.id) } : { ...item });
+    this.origins.clear();
+    return items;
+  }
+
+  settle(world) {
+    let changed = false;
+    for (const item of this.items) {
+      const floor = floorBelow(world, item);
+      if (floor !== null && floor < item.y - 1e-6) { item.y = floor; changed = true; }
+    }
+    if (changed) this.dirty = true;
+    return changed;
+  }
+
+  planHarvest(changes, collected, now) {
+    const remaining = new Map(collected), items = [];
+    for (const change of changes) {
+      const block = buildBlock(change.from), count = remaining.get(block) || 0;
+      if (!count || doorState(change.from)?.upper) continue;
+      items.push({ id: crypto.randomUUID(), block, count: 1, x: change.x + .5, y: change.y + .35, z: change.z + .5, readyAt: now + 900 });
+      remaining.set(block, count - 1);
+    }
+    if (this.items.length + items.length > MAX_DROPS) return { ok: false, reason: 'drops_full' };
+    return { ok: true, items };
+  }
+  commitHarvest(world, plan) {
+    for (const item of plan.items) this.origins.set(item.id, item.y);
+    this.items.push(...plan.items);
+    // Existing drops need a new floor too when this edit removes their support.
+    return this.settle(world);
+  }
 
   drop(world, inventory, pose, args, id, now = Date.now()) {
     if (!inventory?.stacks) return { ok: false, reason: 'invalid' };
@@ -68,9 +124,9 @@ export class ItemDrops {
       if (blocked(world, next.x, next.y, next.z)) break;
       position = next;
     }
-    // Settle onto the first surface below, respecting slabs and other thin shapes.
-    while (position.y - 0.05 >= RADIUS && !blocked(world, position.x, position.y - 0.05, position.z)) position.y -= 0.05;
     this.items.push({ id, block: stack.block, count: amount, ...position, readyAt: now + 1500 });
+    this.origins.set(id, position.y);
+    this.settle(world);
     stack.count -= amount;
     if (!stack.count) inventory.stacks[source] = null;
     return { ok: true, type: 'drops' };
@@ -78,6 +134,8 @@ export class ItemDrops {
 
   pickup(world, inventory, pose, now = Date.now()) {
     if (!inventory?.stacks || !pose.active) return { ok: false, reason: 'empty' };
+    this.settle(world);
+    const before = inventory.stacks.slice(0, 9).map(stack => stack ? { ...stack } : null);
     let picked = 0;
     for (const item of this.items) {
       if (now < item.readyAt || Math.hypot(item.x - pose.x, item.z - pose.z) > PICKUP_RADIUS
@@ -90,6 +148,9 @@ export class ItemDrops {
       item.count -= count; picked += count;
     }
     this.items = this.items.filter(item => item.count > 0);
-    return picked ? { ok: true, type: 'drops' } : { ok: false, reason: 'empty' };
+    const ids = new Set(this.items.map(item => item.id));
+    for (const id of this.origins.keys()) if (!ids.has(id)) this.origins.delete(id);
+    const hotbarSlots = inventory.stacks.slice(0, 9).flatMap((stack, i) => stack && (stack.block !== before[i]?.block || stack.count > before[i].count) ? [i] : []);
+    return picked ? { ok: true, type: 'drops', picked, hotbarSlots } : { ok: false, reason: 'empty' };
   }
 }

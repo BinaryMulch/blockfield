@@ -1,6 +1,6 @@
-import { AIR, HEIGHT, SIZE, STONE, SAND, WOOD, LEAVES, CONCRETE, WARD_LANTERN, SALVAGE_CRATE, SAPLING, SCRAP, BIOFUEL, REPAIR_TOOL, isSapling, isFlowerSoil, buildBlock, doorState, overlapsBlock } from './world.js';
+import { AIR, HEIGHT, SIZE, STONE, SAND, WOOD, PLANKS, LEAVES, STONE_BRICKS, WARD_LANTERN, SALVAGE_CRATE, SAPLING, WOODEN_PEGS, CHARCOAL, STONE_HAMMER, isSapling, isFlowerSoil, buildBlock, doorState, overlapsBlock } from './world.js';
 import { DAY_LENGTH } from './clock.js';
-import { inReach, strength } from './infrastructure.js';
+import { inReach, strength, isRepairable } from './infrastructure.js';
 
 export const MAX_PLANTS = 2048;
 export const MAX_WARDS = 2048;
@@ -13,7 +13,7 @@ export const SALVAGE_INTERVAL = DAY_LENGTH;
 const key = p => `${p.x},${p.y},${p.z}`;
 const position = (p, size) => p && [p.x, p.y, p.z].every(Number.isInteger) && p.x >= 0 && p.z >= 0 && p.x < size && p.z < size && p.y > 0 && p.y < HEIGHT;
 const time = n => Number.isFinite(n) && n >= 0 && n <= Number.MAX_SAFE_INTEGER;
-const resources = [SCRAP, STONE, SAND], bundle = [2, 4, 2], stockCap = [8, 16, 8];
+const resources = [WOODEN_PEGS, STONE, SAND], bundle = [2, 4, 2], stockCap = [8, 16, 8];
 
 // Indexed heap: replacing/removing plants never leaves stale timers behind.
 const scheduledAt = p => p.checkAt ?? p.dueAt;
@@ -108,10 +108,11 @@ export class UpkeepSystem {
     if (!inReach(pose, p)) return { ok: false, reason: 'reach' };
     const block = this.world.get(p.x, p.y, p.z), now = this.clock(), k = key(p);
     if (method === 'repair') {
-      if (!inventory.count(REPAIR_TOOL)) return { ok: false, reason: 'tool' };
+      if (!isRepairable(block)) return { ok: false, reason: 'undamaged' };
+      if (!inventory.count(STONE_HAMMER)) return { ok: false, reason: 'tool' };
       const base = { x: p.x, y: p.y - Number(doorState(block)?.upper || false), z: p.z }, damaged = this.infrastructure?.damage.get(key(base));
       if (!damaged || damaged.block !== buildBlock(block)) return { ok: false, reason: 'undamaged' };
-      const material = buildBlock(block) === CONCRETE ? STONE : SCRAP;
+      const material = buildBlock(block) === STONE_BRICKS ? STONE : PLANKS;
       const plan = inventory.balance(new Map([[material, -1]])); if (!plan.ok) return plan;
       inventory.applyBalance(plan); this.infrastructure.clearDamage(base);
       return { ok: true, type: 'upkeep', damage: { ...base, block: damaged.block, remaining: strength(block) }, message: 'Structure repaired to full strength.' };
@@ -126,7 +127,7 @@ export class UpkeepSystem {
       inventory.applyBalance(plan); site.stock = state.stock.map((n, i) => n - bundle[i]); site.updatedAt = state.updatedAt;
     } else if (method === 'refuelWard' && info.kind === 'ward') {
       if (info.remainingSeconds > WARD_CAPACITY - FUEL_SECONDS + .01) return { ok: false, reason: 'fuel_full', info };
-      const plan = inventory.balance(new Map([[BIOFUEL, -1]])); if (!plan.ok) return { ...plan, info };
+      const plan = inventory.balance(new Map([[CHARCOAL, -1]])); if (!plan.ok) return { ...plan, info };
       inventory.applyBalance(plan); Object.assign(this.wards.get(k), { chargeSeconds: Math.min(WARD_CAPACITY, info.remainingSeconds + FUEL_SECONDS), updatedAt: now });
     } else if (method === 'setWardPower' && info.kind === 'ward' && typeof p.enabled === 'boolean') {
       Object.assign(this.wards.get(k), { chargeSeconds: info.remainingSeconds, updatedAt: now, enabled: p.enabled });

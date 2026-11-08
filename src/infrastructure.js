@@ -1,11 +1,12 @@
-import { AIR, HEIGHT, SIZE, EYE_HEIGHT, CONCRETE, REINFORCED_PANEL, STORAGE_CABINET, SECURITY_DOOR, buildBlock, isCabinet, doorState } from './world.js';
+import { AIR, HEIGHT, SIZE, EYE_HEIGHT, STONE, WOOD, STONE_BRICKS, BRACED_TIMBER, WOODEN_CHEST, BRACED_DOOR, buildBlock, isCabinet, doorState } from './world.js';
 import { STACK_LIMIT, validStack } from './inventory.js';
 
 export const STORAGE_SLOTS = 27;
 export const MAX_CONTAINERS = 4096;
 export const MAX_DAMAGE = 4096;
-const STRENGTH = Object.freeze({ [CONCRETE]: 2, [REINFORCED_PANEL]: 4, [STORAGE_CABINET]: 2, [SECURITY_DOOR]: 5 });
+const STRENGTH = Object.freeze({ [STONE]: 3, [WOOD]: 3, [STONE_BRICKS]: 2, [BRACED_TIMBER]: 4, [WOODEN_CHEST]: 2, [BRACED_DOOR]: 5 });
 export const strength = block => STRENGTH[buildBlock(block)] || 1;
+export const isRepairable = block => [STONE_BRICKS, BRACED_TIMBER, WOODEN_CHEST, BRACED_DOOR].includes(buildBlock(block));
 const key = ({ x, y, z }) => `${x},${y},${z}`;
 const clone = stack => stack ? { ...stack } : null;
 const position = (p, size) => p && [p.x, p.y, p.z].every(Number.isInteger) && p.x >= 0 && p.x < size && p.z >= 0 && p.z < size && p.y > 0 && p.y < HEIGHT;
@@ -21,7 +22,7 @@ export function validInfrastructure(containers = [], damage = [], size = 512) {
     positions.add(key(c)); ids.add(c.id);
   }
   for (const d of damage) {
-    if (!position(d, size) || damaged.has(key(d)) || ![CONCRETE, REINFORCED_PANEL, STORAGE_CABINET, SECURITY_DOOR].includes(d.block)
+    if (!position(d, size) || damaged.has(key(d)) || !Object.hasOwn(STRENGTH, d.block)
       || !Number.isInteger(d.remaining) || d.remaining < 1 || d.remaining >= strength(d.block)) return false;
     damaged.add(key(d));
   }

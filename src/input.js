@@ -14,6 +14,16 @@ export function disableUIFocus(root) {
   }, true);
 }
 
+export const INVENTORY_KEY = 'KeyE';
+export const INTERACT_KEY = 'KeyE';
+export const DROP_KEY = 'KeyQ';
+
+export function hotbarArrowDirection(code) {
+  if (code === 'ArrowLeft' || code === 'ArrowUp') return -1;
+  if (code === 'ArrowRight' || code === 'ArrowDown') return 1;
+  return 0;
+}
+
 // Wheels step once per notch; small trackpad deltas accumulate into a step.
 export class HotbarScroll {
   delta = 0;

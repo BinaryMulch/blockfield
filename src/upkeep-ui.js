@@ -1,7 +1,8 @@
+import { supplySiteName } from './horror.js';
 export const upkeepFailure = reason => ({
-  supplies: 'Collect the required materials first.', tool: 'Craft a repair tool and keep it in your inventory.',
+  supplies: 'Collect the required materials first.', tool: 'Craft a stone hammer and keep it in your inventory.',
   undamaged: 'This structure is already at full strength.', replenishing: 'This supply point is replenishing. Come back later.',
-  inventory_full: 'Make room in your inventory for a complete supply bundle.', fuel_full: 'The ward already has enough charge. A cartridge adds one game day.',
+  inventory_full: 'Make room in your inventory for a complete supply bundle.', fuel_full: 'The ward already has enough charge. One piece of charcoal adds one game day.',
   reach: 'Move closer to use this.', changed: 'This object has changed.', storage: 'Could not save this action. Retry saving from the menu.',
   busy: 'Let the current action finish, then try again.', disconnected: 'Waiting for the host to reconnect…',
 })[reason] || 'This action could not be completed.';
@@ -29,14 +30,14 @@ export class UpkeepView {
     this.dialog.setAttribute('aria-busy', String(this.pending));
     for (const b of [this.fuel, this.power, this.gather]) b.disabled = this.pending;
     if (p.kind === 'ward') {
-      this.title.textContent = 'Ward emitter';
-      this.detail.textContent = `${p.enabled ? 'Power on' : 'Power off'} · ${Math.floor(p.fraction * 100)}% charge · ${minutes(p.remainingSeconds)} of simulation time remaining.${p.low ? ' Low charge: prepare fuel.' : ''}`;
-      this.power.textContent = p.enabled ? 'Switch off' : 'Switch on';
-      this.status.textContent = 'One biomass cartridge adds one game day. Capacity: three days. Switched-off wards preserve charge and provide no protection.';
+      this.title.textContent = 'Ward lantern';
+      this.detail.textContent = `${p.enabled ? 'Lit' : 'Extinguished'} · ${Math.floor(p.fraction * 100)}% charge · ${minutes(p.remainingSeconds)} of simulation time remaining.${p.low ? ' Low charge: prepare fuel.' : ''}`;
+      this.power.textContent = p.enabled ? 'Extinguish' : 'Light lantern';
+      this.status.textContent = 'One piece of charcoal adds one game day. Capacity: three days. Extinguished wards preserve charge and provide no protection.';
     } else if (p.kind === 'salvage') {
-      this.title.textContent = p.name;
-      this.detail.textContent = `${p.stock[0]} scrap · ${p.stock[1]} stone · ${p.stock[2]} sand available. Next replenishment in ${minutes(p.remainingSeconds)}.`;
-      this.status.textContent = 'Each bundle contains 2 scrap, 4 stone, and 2 sand. Shared supplies replenish once per game day, up to four bundles.';
+      this.title.textContent = supplySiteName(p.name);
+      this.detail.textContent = `${p.stock[0]} wooden pegs · ${p.stock[1]} stone · ${p.stock[2]} sand available. Next replenishment in ${minutes(p.remainingSeconds)}.`;
+      this.status.textContent = 'Each bundle contains 2 wooden pegs, 4 stone, and 2 sand. Shared supplies replenish once per game day, up to four bundles.';
     } else {
       this.title.textContent = `Sapling · Stage ${p.stage + 1} of 3`;
       this.detail.textContent = p.blocked ? `Waiting for ${p.blocked === 'unloaded' ? 'nearby terrain to load' : p.blocked === 'player' ? 'players to move clear' : p.blocked === 'height' ? 'more build height' : 'clear space'}.` : `Next growth stage in ${minutes(p.remainingSeconds)}.`;

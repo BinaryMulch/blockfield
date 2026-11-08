@@ -34,14 +34,14 @@ export function shelterDescription(shelter) {
     return 'Checking shelter · Verifying enclosure';
   }
   if (shelter.state === 'protected') return shelter.power?.low ? 'Protected · Ward charge low' : 'Protected · Ward active';
-  if (shelter.state === 'sheltered') return shelter.reason === 'no_power' ? 'Shelter enclosed · Ward needs power' : 'Shelter enclosed · Add a ward emitter';
+  if (shelter.state === 'sheltered') return shelter.reason === 'no_power' ? 'Shelter enclosed · Ward needs fuel' : 'Shelter enclosed · Add a ward lantern';
   if (shelter.reason === 'large') return 'Exposed · Find or finish an enclosed shelter';
   return 'Exposed · Seal walls, floor, roof and doors';
 }
 
 export function wardDescription(ward) {
-  if (!ward) return 'Ward emitter · Checking protection';
-  if (ward.powered === false) return ward.enabled === false ? 'Ward switched off · Protection inactive' : 'Ward empty · Load biomass cartridges';
+  if (!ward) return 'Ward lantern · Checking protection';
+  if (ward.powered === false) return ward.enabled === false ? 'Ward extinguished · Protection inactive' : 'Ward empty · Add charcoal';
   if (ward.active) return ward.low ? 'Ward active · Low charge' : 'Ward active · This enclosed room is protected';
   if (ward.reason === 'support') return 'Ward inactive · Needs a full-height support';
   if (ward.reason === 'unloaded') return 'Ward checking · Nearby terrain loading';

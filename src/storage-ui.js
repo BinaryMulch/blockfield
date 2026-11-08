@@ -36,7 +36,7 @@ export class StorageView {
         return button;
       }));
     }
-    this.status.textContent = this.pending ? 'Moving supplies…' : 'Click a stack to transfer it. Right-click to transfer one. Everyone shares this cabinet. The world keeps running.';
+    this.status.textContent = this.pending ? 'Moving supplies…' : 'Click a stack to transfer it. Right-click to transfer one. Everyone shares this chest. The world keeps running.';
   }
   async transfer(source, index, one) {
     if (this.pending || !this.storage) return;
@@ -49,7 +49,7 @@ export class StorageView {
       if (this.epoch !== epoch) return;
       if (result.storage) this.sync(result.storage);
       this.pending = false; this.render();
-      if (!result.ok) this.status.textContent = { changed: 'These supplies changed. The cabinet has refreshed; try again.', inventory_full: 'The destination is full. Make room first.', reach: 'Move closer to this cabinet.', storage: 'Could not save this transfer. Retry saving from the menu.', disconnected: 'Waiting for the host to reconnect…' }[result.reason] || 'Could not move these supplies. Try again.';
+      if (!result.ok) this.status.textContent = { changed: 'These supplies changed. The chest has refreshed; try again.', inventory_full: 'The destination is full. Make room first.', reach: 'Move closer to this chest.', storage: 'Could not save this transfer. Retry saving from the menu.', disconnected: 'Waiting for the host to reconnect…' }[result.reason] || 'Could not move these supplies. Try again.';
     } catch {
       if (this.epoch === epoch) { this.pending = false; this.render(); this.status.textContent = 'Could not move supplies. Check the connection.'; }
     }

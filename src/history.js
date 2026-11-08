@@ -1,4 +1,4 @@
-import { AIR, WATER, LANTERN, DOOR, SECURITY_DOOR, doorType, isLantern, isBlock, isDoor, isCabinet, cabinetBlockFromYaw, isFlower, isPlant, isSapling, SAPLING, isFlowerSoil, doorBlock, doorState, isSolid, isSupport, overlapsBlock } from './world.js';
+import { AIR, WATER, LANTERN, DOOR, BRACED_DOOR, doorType, isLantern, isBlock, isDoor, isCabinet, cabinetBlockFromYaw, isFlower, isPlant, isSapling, SAPLING, isFlowerSoil, doorBlock, doorState, isSolid, isSupport, overlapsBlock } from './world.js';
 
 export class EditHistory {
   undoStack = [];
@@ -37,15 +37,18 @@ export class EditHistory {
     const upkeepGuard = this.upkeep?.guard(changes);
     if (upkeepGuard && !upkeepGuard.ok) return upkeepGuard;
     // Every check finishes before any cell changes, keeping fixture edits atomic.
-    const balance = this.inventory?.plan(changes, this.spendSlot);
+    const balance = this.inventory?.plan(changes, this.spendSlot, !this.drops);
     if (balance && !balance.ok) return balance;
+    const harvest = this.drops?.planHarvest(changes, balance?.collected || [], (this.attackTime || 0) * 1000);
+    if (harvest && !harvest.ok) return harvest;
     const strike = this.infrastructure?.strike(changes, this.attackTime ?? 0, this.actorId);
     if (strike) return strike;
     for (const c of changes) this.world.set(c.x, c.y, c.z, c.to);
     if (balance) this.inventory.applyBalance(balance);
+    const fallingItems = harvest && this.drops.commitHarvest(this.world, harvest);
     this.infrastructure?.changed(changes);
     this.upkeep?.changed(changes);
-    return { ok: true, changes, change: changes[0] };
+    return { ok: true, changes, change: changes[0], dropsChanged: !!harvest?.items.length || !!fallingItems };
   }
 
   commit(cells, player) {
@@ -101,7 +104,7 @@ export class EditHistory {
   }
 
   placeDoor(x, y, z, facing, player, type = DOOR) {
-    if (![DOOR, SECURITY_DOOR].includes(type)) return { ok: false, reason: 'invalid' };
+    if (![DOOR, BRACED_DOOR].includes(type)) return { ok: false, reason: 'invalid' };
     if (!Number.isInteger(facing) || facing < 0 || facing > 3) return { ok: false, reason: 'invalid' };
     const before = this.world.get(x, y, z), above = this.world.get(x, y + 1, z);
     if (![AIR, WATER].includes(before) && !isFlower(before) || ![AIR, WATER].includes(above) && !isFlower(above)) return { ok: false, reason: 'occupied' };

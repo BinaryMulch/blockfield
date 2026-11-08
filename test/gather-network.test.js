@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { WebSocket } from 'ws';
 import { createGameServer } from '../server.js';
 import { PROTOCOL } from '../server/room.js';
-import { AIR, PLANKS } from '../src/world.js';
+import { AIR, WOOD, PLANKS } from '../src/world.js';
 const count = (inventory, block) => inventory.stacks.reduce((n, stack) => n + (stack?.block === block ? stack.count : 0), 0);
 
 async function client(port, token) {
@@ -22,6 +22,51 @@ async function client(port, token) {
   return { socket, next, messages };
 }
 
+async function collectHarvest(game, connection, requestId) {
+  const dropped = await connection.next(m => m.type === 'drops' && m.drops.length > 0), item = dropped.drops[0];
+  game.room.clock.elapsedSeconds = Math.max(game.room.clock.elapsedSeconds, item.readyAt / 1000 + .01);
+  connection.socket.send(JSON.stringify({ type: 'pose', pose: { x: item.x, y: item.y - .17, z: item.z, yaw: 0, pitch: 0, active: true } }));
+  connection.socket.send(JSON.stringify({ type: 'command', requestId, method: 'pickup' }));
+  const supplies = await connection.next(m => m.type === 'supplies');
+  assert.equal((await connection.next(m => m.type === 'result' && m.requestId === requestId)).ok, true);
+  await connection.next(m => m.type === 'drops' && m.drops.length === 0);
+  connection.socket.send(JSON.stringify({ type: 'pose', pose: { x: item.x + 2, y: item.y + .83, z: item.z + 2, yaw: 0, pitch: 0, active: false } }));
+  return supplies;
+}
+
+test('network crafting checkpoints real grid ingredients, returns cursor output metadata, and resumes after restart', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'blockfield-crafting-network-')), sockets = [];
+  let game;
+  try {
+    game = await createGameServer({ host: '127.0.0.1', port: 0, saveDirectory: directory });
+    const token = randomUUID(), a = await client(game.server.address().port, token); sockets.push(a.socket);
+    const welcome = await a.next(m => m.type === 'welcome');
+    game.room.players.get(welcome.self.id).inventory.stacks[0] = { block: WOOD, count: 3 };
+    a.socket.send(JSON.stringify({ type: 'command', requestId: 1, method: 'inventory', action: 'move', source: 0, target: 40, amount: 3, expectedSource: { block: WOOD, count: 3 }, expectedTarget: null }));
+    const placed = await a.next(m => m.type === 'supplies');
+    assert.equal((await a.next(m => m.type === 'result' && m.requestId === 1)).ok, true);
+    assert.deepEqual(placed.inventory.crafting[4], { block: WOOD, count: 3 });
+    a.socket.send(JSON.stringify({ type: 'command', requestId: 2, method: 'inventory', action: 'craftGrid', expectedCrafting: placed.inventory.crafting }));
+    const crafted = await a.next(m => m.type === 'supplies'), result = await a.next(m => m.type === 'result' && m.requestId === 2);
+    assert.deepEqual([result.ok, result.block, result.amount, result.batches, result.source], [true, PLANKS, 4, 1, 0]);
+    assert.equal(crafted.inventory.crafting[4].count, 2); assert.equal(count(crafted.inventory, PLANKS), 4);
+    a.socket.send(JSON.stringify({ type: 'command', requestId: 3, method: 'inventory', action: 'craftGrid', expectedCrafting: placed.inventory.crafting }));
+    assert.equal((await a.next(m => m.type === 'result' && m.requestId === 3)).reason, 'changed');
+    const saved = JSON.parse(await readFile(join(directory, 'world.json'), 'utf8'));
+    assert.equal(saved.profiles.find(([key]) => key === token)[1].crafting[4].count, 2);
+    await game.close(); game = await createGameServer({ host: '127.0.0.1', port: 0, saveDirectory: directory });
+    const b = await client(game.server.address().port, token); sockets.push(b.socket);
+    const restored = await b.next(m => m.type === 'welcome');
+    assert.deepEqual(restored.inventory.crafting, crafted.inventory.crafting);
+    b.socket.send(JSON.stringify({ type: 'command', requestId: 1, method: 'inventory', action: 'craftGrid', all: true, expectedCrafting: restored.inventory.crafting }));
+    const finished = await b.next(m => m.type === 'supplies');
+    assert.equal((await b.next(m => m.type === 'result' && m.requestId === 1)).amount, 8);
+    assert.equal(count(finished.inventory, PLANKS), 12); assert.equal(finished.inventory.crafting.some(Boolean), false);
+  } finally {
+    sockets.forEach(socket => socket.terminate()); await game?.close(); await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('gather network changes checkpoint supplies and blocks together and restore separate profiles after restart', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'blockfield-gather-network-')), sockets = [];
   let game;
@@ -31,19 +76,21 @@ test('gather network changes checkpoint supplies and blocks together and restore
     const welcome = await a.next(m => m.type === 'welcome'); assert.equal(welcome.gameMode, 'horror');
     const x = Math.floor(welcome.self.x), y = Math.floor(welcome.self.y) - 1, z = Math.floor(welcome.self.z), block = game.room.world.get(x, y, z);
     a.socket.send(JSON.stringify({ type: 'command', requestId: 1, method: 'edit', x, y, z, block: AIR, expected: game.room.expected(x, y, z) }));
-    const supplies = await a.next(m => m.type === 'supplies'); assert.equal(count(supplies.inventory, block), 1);
+    const broken = await a.next(m => m.type === 'supplies'); assert.equal(count(broken.inventory, block), 0);
     assert.equal((await a.next(m => m.type === 'result' && m.requestId === 1)).ok, true);
-    a.socket.send(JSON.stringify({ type: 'command', requestId: 2, method: 'inventory', action: 'move', source: 0, target: 9, amount: 1, expectedSource: supplies.inventory.stacks[0], expectedTarget: null }));
+    const supplies = await collectHarvest(game, a, 2); assert.equal(count(supplies.inventory, block), 1);
+    a.socket.send(JSON.stringify({ type: 'command', requestId: 3, method: 'inventory', action: 'move', source: 0, target: 9, amount: 1, expectedSource: supplies.inventory.stacks[0], expectedTarget: null }));
     const moved = await a.next(m => m.type === 'supplies'); assert.equal(moved.inventory.stacks[0], null); assert.equal(moved.inventory.stacks[9].count, 1);
-    assert.equal((await a.next(m => m.type === 'result' && m.requestId === 2)).moved, 1);
-    a.socket.send(JSON.stringify({ type: 'command', requestId: 3, method: 'inventory', action: 'move', source: 0, target: 10, amount: 64, expectedSource: { block, count: 64 }, expectedTarget: null }));
-    assert.equal((await a.next(m => m.type === 'result' && m.requestId === 3)).reason, 'changed');
-    a.socket.send(JSON.stringify({ type: 'command', requestId: 4, method: 'edit', x, y, z, block, slot: 9, expected: game.room.expected(x, y, z) }));
-    assert.equal((await a.next(m => m.type === 'result' && m.requestId === 4)).reason, 'supplies', 'backpack stacks cannot be used as a selected hotbar slot');
+    assert.equal((await a.next(m => m.type === 'result' && m.requestId === 3)).moved, 1);
+    a.socket.send(JSON.stringify({ type: 'command', requestId: 4, method: 'inventory', action: 'move', source: 0, target: 10, amount: 64, expectedSource: { block, count: 64 }, expectedTarget: null }));
+    assert.equal((await a.next(m => m.type === 'result' && m.requestId === 4)).reason, 'changed');
+    a.socket.send(JSON.stringify({ type: 'command', requestId: 5, method: 'edit', x, y, z, block, slot: 9, expected: game.room.expected(x, y, z) }));
+    assert.equal((await a.next(m => m.type === 'result' && m.requestId === 5)).reason, 'supplies', 'backpack stacks cannot be used as a selected hotbar slot');
     const saved = JSON.parse(await readFile(join(directory, 'world.json'), 'utf8'));
     assert.equal(count(saved.profiles.find(([key]) => key === token)[1], block), 1);
     const b = await client(game.server.address().port, randomUUID()); sockets.push(b.socket);
     const other = await b.next(m => m.type === 'welcome'); assert.equal(count(other.inventory, block), 0);
+    b.socket.send(JSON.stringify({ type: 'pose', pose: { x: x + 2.5, y: y + 1.01, z: z + 2.5, yaw: 0, pitch: 0, active: false } }));
     b.socket.send(JSON.stringify({ type: 'command', requestId: 1, method: 'edit', x, y, z, block, expected: game.room.expected(x, y, z), inventory: { counts: Array(15).fill(64) } }));
     assert.equal((await b.next(m => m.type === 'result')).reason, 'supplies');
     b.socket.send(JSON.stringify({ type: 'command', requestId: 2, method: 'craft', block: PLANKS, counts: Array(15).fill(64) }));
@@ -80,11 +127,14 @@ test('network drops broadcast after checkpoint, survive restart, and transfer to
     await b.next(m => m.type === 'welcome');
     const x = Math.floor(welcome.self.x), y = Math.floor(welcome.self.y) - 1, z = Math.floor(welcome.self.z), block = game.room.world.get(x, y, z);
     a.socket.send(JSON.stringify({ type: 'command', requestId: 1, method: 'edit', x, y, z, block: AIR, expected: game.room.expected(x, y, z) }));
-    const supplies = await a.next(m => m.type === 'supplies');
+    await a.next(m => m.type === 'supplies');
     await a.next(m => m.type === 'result' && m.requestId === 1);
-    a.socket.send(JSON.stringify({ type: 'command', requestId: 2, method: 'drop', source: 0, amount: 1, expectedSource: supplies.inventory.stacks[0], block: PLANKS, x: 0, y: 0, z: 0 }));
+    await b.next(m => m.type === 'drops' && m.drops.length === 1);
+    const supplies = await collectHarvest(game, a, 2);
+    await b.next(m => m.type === 'drops' && m.drops.length === 0);
+    a.socket.send(JSON.stringify({ type: 'command', requestId: 3, method: 'drop', source: 0, amount: 1, expectedSource: supplies.inventory.stacks[0], block: PLANKS, x: 0, y: 0, z: 0 }));
     const dropped = await b.next(m => m.type === 'drops'); assert.equal(dropped.drops.length, 1); assert.equal(dropped.drops[0].block, block);
-    assert.equal((await a.next(m => m.type === 'result' && m.requestId === 2)).ok, true);
+    assert.equal((await a.next(m => m.type === 'result' && m.requestId === 3)).ok, true);
     const saved = JSON.parse(await readFile(join(directory, 'world.json'), 'utf8'));
     assert.equal(saved.drops[0].count, 1); assert.equal(count(saved.profiles.find(([token]) => token === tokenA)[1], block), 0);
     assert.ok(saved.drops[0].x > 200, 'drop position comes from the authoritative pose, ignoring client coordinates');
@@ -100,6 +150,8 @@ test('network drops broadcast after checkpoint, survive restart, and transfer to
     }
     const resultB = await againB.next(m => m.type === 'result' && m.requestId === 1), resultA = await againA.next(m => m.type === 'result' && m.requestId === 1);
     assert.equal(Number(resultB.ok) + Number(resultA.ok), 1);
+    const pickup = resultB.ok ? resultB : resultA;
+    assert.equal(pickup.picked, 1); assert.deepEqual(pickup.hotbarSlots, [0]);
     assert.deepEqual((await againA.next(m => m.type === 'drops')).drops, []);
     const picked = JSON.parse(await readFile(join(directory, 'world.json'), 'utf8'));
     assert.equal(picked.drops.length, 0);
@@ -119,12 +171,13 @@ test('a failed drop checkpoint publishes neither inventory nor entities and pres
     const welcome = await a.next(m => m.type === 'welcome');
     const x = Math.floor(welcome.self.x), y = Math.floor(welcome.self.y) - 1, z = Math.floor(welcome.self.z), block = game.room.world.get(x, y, z);
     a.socket.send(JSON.stringify({ type: 'command', requestId: 1, method: 'edit', x, y, z, block: AIR, expected: game.room.expected(x, y, z) }));
-    const supplies = await a.next(m => m.type === 'supplies');
+    await a.next(m => m.type === 'supplies');
     await a.next(m => m.type === 'result' && m.requestId === 1);
+    const supplies = await collectHarvest(game, a, 2);
     game.persistence.save = async () => { throw new Error('Disk full'); };
-    a.socket.send(JSON.stringify({ type: 'command', requestId: 2, method: 'drop', source: 0, amount: 1, expectedSource: supplies.inventory.stacks[0] }));
+    a.socket.send(JSON.stringify({ type: 'command', requestId: 3, method: 'drop', source: 0, amount: 1, expectedSource: supplies.inventory.stacks[0] }));
     assert.equal((await a.next(m => m.type === 'unavailable')).reason, 'storage');
-    assert.equal(a.messages.some(m => m.type === 'drops' || m.type === 'supplies' || m.type === 'result' && m.requestId === 2), false);
+    assert.equal(a.messages.some(m => m.type === 'drops' || m.type === 'supplies' || m.type === 'result' && m.requestId === 3), false);
     const saved = JSON.parse(await readFile(join(directory, 'world.json'), 'utf8'));
     assert.deepEqual(saved.drops, []); assert.equal(count(saved.profiles.find(([key]) => key === token)[1], block), 1);
   } finally {

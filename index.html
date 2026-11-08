@@ -62,6 +62,25 @@
       <p class="performance-note">Live frames · p95: 95% were this fast or faster.<br>Browser CPU / GPU usage isn’t exposed.<br>Pause for controls · Performance to hide.</p>
       <div class="performance-actions"><button type="button" data-reset>Reset frames</button><button type="button" data-export>Export report</button></div>
     </aside>
+    <aside id="director-debug" class="director-debug" aria-label="AI director debug window" hidden>
+      <div class="performance-heading"><strong>AI director <kbd>O</kbd></strong><button type="button" data-close aria-label="Close AI director debug">×</button></div>
+      <p data-director="source">No world open</p>
+      <dl>
+        <dt>Phase</dt><dd data-director="phase">—</dd>
+        <dt>Phase reason</dt><dd data-director="reason">—</dd>
+        <dt>Encounter allowance</dt><dd data-director="allowance">—</dd>
+        <dt>Team pressure</dt><dd data-director="pressure">—</dd>
+        <dt>Permissions</dt><dd data-director="permissions">—</dd>
+        <dt>Listener state</dt><dd data-director="state">—</dd>
+        <dt>Decision</dt><dd data-director="decision">—</dd>
+        <dt>Evidence</dt><dd data-director="evidence">—</dd>
+        <dt>Position → target</dt><dd data-director="position">—</dd>
+        <dt>Barrier attack</dt><dd data-director="barrier">—</dd>
+        <dt>Action scores</dt><dd data-director="scores">—</dd>
+        <dt>Navigation work</dt><dd data-director="work">—</dd>
+      </dl>
+      <p class="performance-section">Recent phase changes</p><pre data-director="history">No transitions yet</pre>
+    </aside>
     <main id="menu" class="menu">
       <section class="menu-card" aria-labelledby="menu-title">
         <button id="menu-back" class="menu-back" type="button" hidden>← Back</button>
@@ -77,7 +96,7 @@
           <div class="pause-controls">
             <div class="pause-actions">
               <button id="play" class="play-button" type="button" disabled>Let's play <span aria-hidden="true">↗</span></button>
-              <button id="inventory-toggle" class="inventory-toggle" type="button" disabled>Inventory <kbd>I</kbd></button>
+              <button id="inventory-toggle" class="inventory-toggle" type="button" disabled>Inventory <kbd>E</kbd></button>
               <button id="leave-world" class="leave-button" type="button">Save &amp; leave</button>
             </div>
             <nav class="options-actions" aria-label="Pause options">
@@ -104,7 +123,23 @@
           <p id="fog-note">Fog changes visibility only; terrain loading stays the same. Off can expose the edge of loaded terrain.</p>
           <p id="graphics-note">Saved in this browser. Lower resolution draws fewer pixels.</p>
         </fieldset>
-          <fieldset class="general-settings"><legend>Sound &amp; world</legend><p id="time-label">Horror · Gather, repair, endure</p><button id="sound-toggle" class="sound-toggle" type="button" aria-label="Mute sound" aria-pressed="false">Sound on <kbd>M</kbd></button><button id="performance-toggle" class="performance-toggle" type="button" aria-controls="performance-panel" aria-pressed="false">Performance <kbd>P</kbd></button><p>The world keeps running in menus and pauses when the last player disconnects. Leave the world to pause single player.</p></fieldset>
+          <fieldset class="general-settings"><legend>Audio &amp; world</legend>
+            <p id="time-label">Horror · Gather, repair, endure</p>
+            <button id="sound-toggle" class="sound-toggle" type="button" aria-label="Mute all audio" aria-pressed="false">Sound on <kbd>M</kbd></button>
+            <button id="performance-toggle" class="performance-toggle" type="button" aria-controls="performance-panel" aria-pressed="false">Performance <kbd>P</kbd></button>
+            <button id="director-debug-toggle" type="button" aria-controls="director-debug" aria-pressed="false">AI director <kbd>O</kbd></button>
+            <div class="audio-controls">
+              <label for="effects-volume">Sound effects <output id="effects-volume-value" for="effects-volume">80%</output><input id="effects-volume" type="range" min="0" max="100" step="1" value="80"></label>
+              <label for="music-volume">Music <output id="music-volume-value" for="music-volume">35%</output><input id="music-volume" type="range" min="0" max="100" step="1" value="35"></label>
+              <label class="music-switch" for="music-enabled"><input id="music-enabled" type="checkbox" checked> Background music</label>
+            </div>
+            <p>Peaceful days, eerie nights, and rising tension near the Listener. Audio settings are saved in this browser. M mutes all audio.</p>
+            <details class="audio-credits"><summary>Music &amp; sound credits</summary>
+              <p>“Reverie”, “The Old Ones”, and “The Encounter” by <a href="https://www.scottbuckley.com.au" target="_blank" rel="noopener noreferrer">Scott Buckley</a> — released under <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener noreferrer">CC BY 4.0</a>. Edited for looping and level balance.</p>
+              <p>Sound effects by rubberduck, OwlishMedia (owlstorm), and Iwan Gabovitch (qubodup), released under CC0. <a href="/audio/CREDITS.txt" target="_blank" rel="noopener noreferrer">Full credits &amp; sources</a>.</p>
+            </details>
+            <p>The world keeps running in menus and pauses when the last player disconnects. Leave the world to pause single player.</p>
+          </fieldset>
         </section>
         <section data-menu-panel="controls" class="controls-screen" hidden>
         <div class="control-picker"><label for="control-mode">Controls</label><select id="control-mode"><option value="mouse">Mouse &amp; keyboard</option><option value="touch">Touch</option></select></div>
@@ -117,9 +152,9 @@
           <span><span class="mouse-icon" aria-hidden="true">◧</span> mouse to look</span>
           <span><span class="mouse-icon" aria-hidden="true">◧</span> click to break</span>
           <span><kbd>F</kbd> place / right-click place or interact</span>
-          <span>Scroll / <kbd>1</kbd>–<kbd>9</kbd> hotbar slots</span>
+          <span>Arrow keys / scroll / <kbd>1</kbd>–<kbd>9</kbd> hotbar slots</span>
           <span>Middle-click to pick a block</span>
-          <span><kbd>I</kbd> open inventory</span>
+          <span><kbd>E</kbd> interact / inventory when nothing can be used</span>
           <span><kbd>Q</kbd> drop one / <kbd>SHIFT</kbd><kbd>Q</kbd> drop stack</span>
           <span>Inventory: click to move stacks, right-click to split or place one</span>
           <span>Inventory: Shift-click to move between backpack and hotbar</span>
@@ -127,20 +162,19 @@
           <span><kbd>ESC</kbd> open / close menu</span>
           <span><kbd>M</kbd> mute / unmute</span>
           <span><kbd>P</kbd> performance stats</span>
-          <span><kbd>E</kbd> / right-click to use doors, cabinets, and wards</span>
-          <span>Cabinet: click to transfer a stack, right-click to transfer one</span>
-          <span>Concrete and reinforced pieces take repeated clicks to dismantle</span>
+          <span><kbd>E</kbd> / right-click to use doors, chests, and wards</span>
+          <span>Chest: click to transfer a stack, right-click to transfer one</span>
+          <span>Stone bricks and braced timber take repeated clicks to dismantle</span>
           <span><kbd>0</kbd> choose a door</span>
-          <span><kbd>L</kbd> utility light / <kbd>SHIFT</kbd><kbd>L</kbd> ward / <kbd>B</kbd> wooden slab</span>
+          <span><kbd>L</kbd> lantern / <kbd>SHIFT</kbd><kbd>L</kbd> ward / <kbd>B</kbd> wooden slab</span>
           <span><kbd>R</kbd> choose / cycle flowers</span>
           <span>Hold <kbd>H</kbd> near a downed teammate to help</span>
-          <span>Select a repair tool, then <kbd>E</kbd> / Use on a damaged structure</span>
+          <span>Select a stone hammer, then <kbd>E</kbd> / Use on a damaged structure</span>
           <span>Use a ward to load fuel or switch it off; use marked supply crates to gather</span>
           <span>Craft saplings from leaves and plant them on grass or dirt</span>
         </div>
         <p class="controls-note">Walk close to dropped items to collect them after a short delay, including items from other players. Inventory has Drop one and Drop stack buttons for held items, or the selected hotbar slot.</p>
         </section>
-        <p id="resource-guide" data-menu-panel="pause" hidden></p>
         <div class="session-panel" data-menu-panel="pause" hidden>
           <div id="network-status" class="session-row" role="status" hidden></div>
           <button id="retry-connection" type="button" hidden>Try joining again</button>
@@ -167,19 +201,32 @@
       <div class="inventory-card">
         <header class="inventory-header"><div><span class="eyebrow">SUPPLIES &amp; SHELTER</span><h2 id="inventory-title">Inventory</h2></div><button id="inventory-close" type="button" aria-label="Close inventory">×</button></header>
         <p id="inventory-description">Gather materials, craft supplies, and repair your shelter.</p>
-        <section id="inventory-crafting" class="inventory-crafting" hidden><h3>Crafting</h3><div id="inventory-recipes" class="inventory-recipes" aria-label="Choose a recipe"></div><div class="inventory-craft-action"><p id="inventory-recipe"></p><button id="inventory-craft" type="button">Make</button></div></section>
+        <section id="inventory-crafting" class="inventory-crafting" hidden>
+          <h3>Crafting</h3>
+          <div class="crafting-layout">
+            <div class="crafting-workbench">
+              <div class="crafting-station">
+                <div id="inventory-crafting-grid" class="crafting-grid" role="group" aria-label="3 by 3 crafting grid"></div>
+                <span class="crafting-arrow" aria-hidden="true">→</span>
+                <button id="inventory-craft" class="inventory-slot crafting-result" type="button" aria-label="Crafting result: empty" disabled></button>
+              </div>
+              <div class="crafting-tools"><button id="inventory-clear-crafting" type="button">Clear grid</button><span>Click result to take · Shift-click to craft all</span></div>
+            </div>
+            <div class="crafting-book"><h4>Recipe book <span>Click to fill · Shift for max</span></h4><div id="inventory-recipes" class="inventory-recipes" role="group" aria-label="Crafting recipes"></div><p id="inventory-recipe"></p></div>
+          </div>
+        </section>
         <section id="inventory-storage-section" hidden><h3>Inventory</h3><nav id="inventory-storage" class="inventory-storage" aria-label="Backpack"></nav></section>
         <h3 id="inventory-hotbar-label" hidden>Hotbar</h3><nav id="inventory-hotbar" class="inventory-hotbar" aria-label="Hotbar"></nav>
         <p id="inventory-status" class="inventory-status" role="status" aria-live="polite"></p>
         <div id="inventory-drop-actions" hidden><button id="inventory-drop-one" type="button">Drop one</button> <button id="inventory-drop-stack" type="button">Drop stack</button></div>
         <div id="inventory-cursor" class="inventory-cursor" hidden></div>
-        <footer class="inventory-footer"><span>Click move · Right-click split · I return · Esc return</span><button id="inventory-back" type="button">Back to game</button></footer>
+        <footer class="inventory-footer"><span>Click move · Right-click split · E return · Esc return</span><button id="inventory-back" type="button">Back to game</button></footer>
       </div>
     </dialog>
     <dialog id="storage-dialog" class="inventory-dialog storage-dialog" aria-labelledby="storage-title" aria-describedby="storage-status">
       <div class="inventory-card">
         <header class="inventory-header"><div><span class="eyebrow">OUTPOST SUPPLIES</span><h2 id="storage-title">Shared storage</h2></div><button id="storage-close" type="button" aria-label="Close storage">×</button></header>
-        <h3>Cabinet · 27 shared slots</h3><nav class="inventory-storage" data-storage-grid="storage" aria-label="Shared cabinet"></nav>
+        <h3>Chest · 27 shared slots</h3><nav class="inventory-storage" data-storage-grid="storage" aria-label="Shared chest"></nav>
         <h3>Your supplies · Hotbar first</h3><nav class="inventory-storage" data-storage-grid="player" aria-label="Your supplies"></nav>
         <p id="storage-status" class="inventory-status" role="status" aria-live="polite"></p>
         <footer class="inventory-footer"><span>Click transfer stack · Right-click transfer one · Esc return</span></footer>
@@ -189,7 +236,7 @@
       <div class="inventory-card">
         <header class="inventory-header"><div><span class="eyebrow">OUTPOST UPKEEP</span><h2 id="upkeep-title">Upkeep</h2></div><button id="upkeep-close" type="button" aria-label="Close upkeep">×</button></header>
         <p id="upkeep-detail"></p>
-        <div class="upkeep-actions"><button id="ward-refuel" type="button">Load biomass cartridge</button><button id="ward-power" type="button">Switch off</button><button id="salvage-gather" type="button">Gather one bundle</button></div>
+        <div class="upkeep-actions"><button id="ward-refuel" type="button">Add charcoal</button><button id="ward-power" type="button">Extinguish</button><button id="salvage-gather" type="button">Gather one bundle</button></div>
         <p id="upkeep-status" role="status" aria-live="polite"></p>
       </div>
     </dialog>

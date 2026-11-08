@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { networkInterfaces } from 'node:os';
 import { readFile, stat } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
@@ -11,7 +12,15 @@ import { DiskWorldStore } from './server/disk-saves.js';
 import { ServerMetrics } from './server/metrics.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.txt': 'text/plain; charset=utf-8', '.json': 'application/json' };
+
+export function audioByteRange(header, size) {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header);
+  if (!match || (!match[1] && !match[2]) || !Number.isSafeInteger(size) || size <= 0) return null;
+  const start = match[1] ? Number(match[1]) : Math.max(0, size - Number(match[2]));
+  const end = match[1] && match[2] ? Math.min(size - 1, Number(match[2])) : size - 1;
+  return Number.isSafeInteger(start) && Number.isSafeInteger(end) && start >= 0 && start <= end && start < size ? { start, end } : null;
+}
 
 export function lanURLs(port, interfaces = networkInterfaces()) {
   const addresses = Object.entries(interfaces).flatMap(([name, entries]) => (entries || [])
@@ -69,9 +78,22 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
       if (!['GET', 'HEAD'].includes(request.method)) { response.writeHead(405); response.end(); return; }
       const directory = path.join(ROOT, 'dist');
       const filename = path.resolve(directory, `.${decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)}`);
-      if (!filename.startsWith(directory + path.sep) || !(await stat(filename)).isFile()) { response.writeHead(404); response.end('Not found'); return; }
-      response.writeHead(200, { 'Content-Type': MIME[path.extname(filename)] || 'application/octet-stream',
-        'Cache-Control': url.pathname.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache' });
+      if (!filename.startsWith(directory + path.sep)) { response.writeHead(404); response.end('Not found'); return; }
+      const info = await stat(filename);
+      if (!info.isFile()) { response.writeHead(404); response.end('Not found'); return; }
+      const headers = { 'Content-Type': MIME[path.extname(filename)] || 'application/octet-stream',
+        'Cache-Control': url.pathname.startsWith('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache' };
+      if (['.wav', '.mp3', '.ogg'].includes(path.extname(filename))) {
+        const range = request.headers.range ? audioByteRange(request.headers.range, info.size) : null;
+        if (request.headers.range && !range) { response.writeHead(416, { 'Content-Range': `bytes */${info.size}` }); response.end(); return; }
+        const start = range?.start ?? 0, end = range?.end ?? info.size - 1;
+        response.writeHead(range ? 206 : 200, { ...headers, 'Accept-Ranges': 'bytes', 'Content-Length': end - start + 1,
+          ...(range ? { 'Content-Range': `bytes ${start}-${end}/${info.size}` } : {}) });
+        if (request.method === 'HEAD') response.end();
+        else createReadStream(filename, { start, end }).on('error', () => response.destroy()).pipe(response);
+        return;
+      }
+      response.writeHead(200, headers);
       response.end(request.method === 'HEAD' ? undefined : await readFile(filename));
     } catch {
       if (!response.headersSent) response.writeHead(404);
@@ -86,6 +108,7 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
   };
   const broadcast = message => { for (const [socket, peer] of peers) if (peer.id) send(socket, message); };
   const broadcastPlayerState = () => {
+    if (room.drops.dirty) { broadcast({ type: 'drops', drops: room.drops.publicSnapshot() }); room.drops.dirty = false; }
     const state = { type: 'players', players: room.playerList(), clock: room.clockState(), listener: room.listener.publicState() };
     for (const [socket, peer] of peers) if (peer.id) send(socket, { ...state, shelter: room.shelterSnapshot(peer.id) });
   };
@@ -135,7 +158,7 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
     await checkpoint();
     for (const event of room.drainEncounters()) {
       if (event.changes) broadcastEdits(event.changes, 'listener', 'pressure');
-      if (event.damage) broadcast({ type: 'construction', damage: event.damage });
+      if (event.damage) broadcast({ type: 'construction', damage: event.damage, by: 'listener' });
     }
     broadcastPlayerState();
   };
@@ -211,15 +234,16 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
       if (result.ok && room.players.get(peer.id)?.inventory) send(socket, { type: 'supplies', inventory: room.players.get(peer.id).inventory.snapshot() });
       if (result.ok && result.type === 'storage') broadcast({ type: 'storage', storage: result.storage });
       if (result.ok && result.type === 'upkeep' && result.info) broadcast({ type: 'upkeep', info: result.info });
-      if (result.ok && result.damage) broadcast({ type: 'construction', damage: result.damage });
-      if (result.ok && result.type === 'drops') broadcast({ type: 'drops', drops: room.drops.snapshot() });
+      if (result.ok && result.damage) broadcast({ type: 'construction', damage: result.damage, by: peer.id });
+      if (result.ok && (result.type === 'drops' || result.dropsChanged)) { broadcast({ type: 'drops', drops: room.drops.publicSnapshot() }); room.drops.dirty = false; }
       if (result.ok && result.changes) {
         broadcastEdits(result.changes, peer.id, message.method);
         send(socket, { type: 'result', requestId: message.requestId, ok: true });
       } else {
         if (result.ok && result.type === 'clock') broadcast({ type: 'clock', clock: room.clockState() });
         if (result.ok && result.type === 'players') broadcastPlayerState();
-        send(socket, { type: 'result', requestId: message.requestId, ok: result.ok, reason: result.reason, moved: result.moved, swapped: result.swapped, storage: result.storage, remaining: result.remaining, info: result.info, message: result.message });
+        send(socket, { type: 'result', requestId: message.requestId, ok: result.ok, reason: result.reason, moved: result.moved, swapped: result.swapped, storage: result.storage, remaining: result.remaining, info: result.info, message: result.message,
+          block: result.block, amount: result.amount, batches: result.batches, source: result.source, picked: result.picked, hotbarSlots: result.hotbarSlots });
       }
       });
     });
