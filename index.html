@@ -15,6 +15,9 @@
     <div id="survival-status" class="survival-status" hidden></div>
     <div id="shelter-status" class="shelter-status" role="status" aria-live="polite" hidden>Checking shelter</div>
     <div id="listener-cue" class="listener-cue" role="status" aria-live="polite" hidden></div>
+    <div id="encounter-shade" aria-hidden="true"></div>
+    <div id="encounter-status" class="encounter-status" role="status" aria-live="polite" hidden></div>
+    <button id="rescue-button" class="rescue-button" type="button" hidden>Hold to help</button>
     <div id="ward-hint" class="ward-hint" hidden></div>
     <div id="structure-strength" class="structure-strength" hidden><span id="strength-label"></span><meter id="strength-meter" min="0" max="1" value="1" aria-label="Structural strength"></meter></div>
 
@@ -36,6 +39,13 @@
         <dt>Chunks data / mesh / queue</dt><dd data-stat="chunks">—</dd>
         <dt title="Average worker execution / complete round-trip time over the latest 60 jobs.">Mesh work / round trip</dt><dd data-stat="mesh">—</dd>
         <dt title="Average worker execution / complete round-trip time over the latest 60 jobs.">Terrain work / round trip</dt><dd data-stat="generate">—</dd>
+        <dt>Director phase / allowance</dt><dd class="performance-detail" data-stat="director">—</dd>
+        <dt>Director reason</dt><dd class="performance-detail" data-stat="director-reason">—</dd>
+        <dt>Listener decision</dt><dd class="performance-detail" data-stat="listener-decision">—</dd>
+        <dt>Perception memory</dt><dd class="performance-detail" data-stat="listener-evidence">—</dd>
+        <dt>Spatial work</dt><dd class="performance-detail" data-stat="listener-queries">—</dd>
+        <dt>Listener behavior</dt><dd class="performance-detail" data-stat="listener">—</dd>
+        <dt title="Navigation nodes expanded / block reads this update, plus remaining path length.">Listener nav / reads / path</dt><dd data-stat="listener-work">—</dd>
         <dt>Jobs mesh / terrain</dt><dd data-stat="jobs">—</dd>
         <dt title="Average cached-light worker time, lanterns in the local field, and pending lighting jobs.">Light bake / lamps / jobs</dt><dd data-stat="lighting">—</dd>
       </dl>
@@ -123,6 +133,7 @@
           <span><kbd>0</kbd> choose a door</span>
           <span><kbd>L</kbd> utility light / <kbd>SHIFT</kbd><kbd>L</kbd> ward / <kbd>B</kbd> wooden slab</span>
           <span><kbd>R</kbd> choose / cycle flowers</span>
+          <span>Hold <kbd>H</kbd> near a downed teammate to help</span>
           <span>Select a repair tool, then <kbd>E</kbd> / Use on a damaged structure</span>
           <span>Use a ward to load fuel or switch it off; use marked supply crates to gather</span>
           <span>Craft saplings from leaves and plant them on grass or dirt</span>

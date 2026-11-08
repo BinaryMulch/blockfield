@@ -27,6 +27,7 @@ button { font: inherit; cursor: pointer; }
 .performance-panel dl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 8px; margin: 0; }
 .performance-panel dt { color: #b0c6b8; }
 .performance-panel dd { margin: 0; text-align: right; white-space: nowrap; }
+.performance-panel .performance-detail { max-width: 180px; white-space: normal; overflow-wrap: anywhere; }
 .performance-section { border-top: 1px solid #adc8b733; padding-top: 7px; margin: 9px 0 5px; color: #b7e9c9; }
 .performance-note { color: #adc1b5; font-size: 9px; line-height: 1.5; margin: 9px 0 7px; }
 .performance-actions { display: flex; gap: 7px; }
@@ -525,3 +526,10 @@ kbd { display: inline-block; padding: 3px 5px; min-width: 18px; border: 1px soli
 .touch-mode .structure-strength { bottom: 210px; }
 
 .listener-cue { position: fixed; z-index: 2; left: 50%; top: calc(115px + env(safe-area-inset-top)); transform: translateX(-50%); max-width: calc(100vw - 32px); padding: 8px 13px; border: 1px solid #8e9b9e66; border-radius: 5px; background: #0d1b24df; color: #c9d6da; font-size: 13px; text-align: center; pointer-events: none; }
+
+#encounter-shade { position: fixed; inset: 0; z-index: 3; pointer-events: none; opacity: 0; background: radial-gradient(ellipse, #07101833 10%, #071018db 100%); transition: opacity .65s ease; }
+.playing.downed #encounter-shade { opacity: 1; }
+.encounter-status { position: fixed; z-index: 4; left: 50%; bottom: calc(188px + env(safe-area-inset-bottom)); transform: translateX(-50%); width: max-content; max-width: min(560px, calc(100vw - 32px)); box-sizing: border-box; padding: 12px 16px; border: 1px solid #83939766; border-radius: 5px; background: #101c24ed; color: #e2e9e8; font-size: 14px; text-align: center; pointer-events: none; }
+.rescue-button { position: fixed; z-index: 5; left: 50%; bottom: calc(132px + env(safe-area-inset-bottom)); transform: translateX(-50%); max-width: calc(100vw - 32px); padding: 12px 18px; border: 1px solid #91b6b0; border-radius: 5px; background: #18352fee; color: #eef9f4; touch-action: none; user-select: none; }
+.downed .ward-hint, .downed .structure-strength { display: none; }
+@media (prefers-reduced-motion: reduce) { #encounter-shade { transition: none; } }

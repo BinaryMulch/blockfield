@@ -52,12 +52,15 @@ export class OtherPlayers {
       part(arm, [0.16, 0.6, 0.22], [0, -0.3, 0], materials.shirt);
       limbs.push({ leg, arm, sign });
     }
+    const body = new THREE.Group();
+    for (const child of [...group.children]) body.add(child);
+    group.add(body);
     const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: nameTexture(player.name), depthWrite: false }));
     label.position.y = 2.08; label.scale.set(label.material.map.image.width / 64 * 0.26, 0.26, 1); group.add(label);
     group.position.set(player.x, player.y, player.z);
     group.rotation.y = player.yaw;
     this.group.add(group);
-    const avatar = { group, head, limbs, label, materials, target: player, name: player.name, stride: 0 };
+    const avatar = { group, body, head, limbs, label, materials, target: player, name: player.name, stride: 0 };
     this.avatars.set(player.id, avatar);
     return avatar;
   }
@@ -92,7 +95,13 @@ export class OtherPlayers {
     const blend = 1 - Math.exp(-seconds * 14);
     let moved = false;
     for (const avatar of this.avatars.values()) {
-      const { group, target, head, limbs } = avatar;
+      const { group, body, target, head, limbs } = avatar;
+      const downed = target.encounter?.state === 'downed';
+      const tilt = downed ? -Math.PI / 2 : 0;
+      if (Math.abs(body.rotation.z - tilt) > .01) moved = true;
+      body.rotation.z += (tilt - body.rotation.z) * blend;
+      body.position.y += ((downed ? .3 : 0) - body.position.y) * blend;
+      avatar.label.position.y = downed ? .9 : 2.08;
       const distance = Math.hypot(target.x - group.position.x, target.z - group.position.z);
       const turn = Math.atan2(Math.sin(target.yaw - group.rotation.y), Math.cos(target.yaw - group.rotation.y));
       if (distance > 0.01 || Math.abs(target.y - group.position.y) > 0.01 || Math.abs(turn) > 0.01 || Math.abs(target.pitch - head.rotation.x) > 0.01) moved = true;
@@ -100,7 +109,7 @@ export class OtherPlayers {
       group.rotation.y += turn * blend;
       head.rotation.x += (target.pitch - head.rotation.x) * blend;
       avatar.stride += distance * blend * 7;
-      const swing = target.active && !target.flying ? Math.sin(avatar.stride) * Math.min(0.45, distance * 2) : 0;
+      const swing = target.active && !target.flying && !downed ? Math.sin(avatar.stride) * Math.min(0.45, distance * 2) : 0;
       for (const { leg, arm, sign } of limbs) { leg.rotation.x = swing * sign; arm.rotation.x = -swing * sign; }
     }
     return moved;

@@ -1,6 +1,6 @@
 # Current features
 
-Blockfield has one **Horror** mode: an ongoing cooperative world with finite gathering, renewable supplies, crafting, construction, repairs, and fuelled ward protection. The first Listener can investigate, stalk, and retreat. Player injury, rescue, and creature-driven structural damage are not implemented yet.
+Blockfield has one **Horror** mode: an ongoing cooperative world with finite gathering, renewable supplies, crafting, construction, repairs, and fuelled ward protection. The Listener investigates, pursues, causes recoverable knockdowns, and damages unprotected doors and reinforced panels. Teammate rescue and automatic solo recovery keep the same world running.
 
 ## Worlds and settlement
 
@@ -64,7 +64,7 @@ Cabinet contents save with player supplies in shared and private worlds, includi
 | Reinforced panels | 4 |
 | Security doors | 5 |
 
-Strike repeatedly with Break/left-click, at least 0.3 simulation seconds apart. Remaining strength is shared and saved; it does not reset when players disconnect or the server restarts. Opening a security door preserves its strength. The final strike returns one block (one item for a complete door), provided your inventory has room. A door still depends on its floor support. Reinforced pieces seal shelter using the same cached enclosure checks as other solid blocks; closed security doors isolate rooms. Creature-driven structural damage is future work.
+Strike repeatedly with Break/left-click, at least 0.3 simulation seconds apart. Remaining strength is shared and saved; it does not reset when players disconnect or the server restarts. Opening a security door preserves its strength. The final strike returns one block (one item for a complete door), provided your inventory has room. A door still depends on its floor support. Reinforced pieces seal shelter using the same cached enclosure checks as other solid blocks; closed security doors isolate rooms. The Listener uses this same damage and repair system when pressuring unprotected doors and reinforced panels; its final strike does not return a material item.
 
 ### Visible structural damage
 
@@ -100,13 +100,64 @@ Player-built rooms work like the starter cabin, including large open houses. Ope
 
 ## The Listener
 
-One Listener can be drawn by loud activity at night (the Night portion of the shared clock), after a 90-second starting grace period. Breaking, building, repairing, gathering salvage, and sprinting produce authoritative noise. Walking is much quieter. Failed actions, idle motion, inventory selection, and opening menus do not produce gameplay noise. Switching off audio changes playback only; the Listener's hearing is simulated independently.
+The Listener has two cooperating AI layers. A saved **tension director** controls encounter pacing and permission to escalate; the creature chooses actions using its own sound/sight memory. Both run authoritatively in private worlds and on the shared host. The starting grace remains 90 simulation seconds, with active encounters restricted to night.
 
-It appears on checked, loaded ground at least 15 blocks from every player, investigates recent noise, then stalks visible exposed players while keeping approximately five blocks of distance. Walls and closed doors obstruct perception and movement. Foliage blocks sight; glass permits sight while muffling sound. It approaches remembered positions when sight is lost and gives up after losing interest. Powered ward protection or unresolved shelter verification keeps it cautious; if enclosed with a powered ward, it retreats. Dawn or a 75-second encounter limit also triggers retreat, followed by a 45-second cooldown. A trapped retreating creature fades out over its final two seconds. It currently causes no player injury or building damage.
+### Tension director
 
-Behavior is shared by all connected players and persists across restarts, without offline catchup. Existing saves receive a dormant Listener. Navigation runs at most five times per second for one creature, with up to 96 expanded nodes and 4,096 navigation block reads per update and a 2 ms route-search target. Perception traces visit at most 96 cells; the noise queue holds at most 32 events. Checks never generate terrain. Footstep noise is derived from actual observed travel, including sprint speed and ground/water contact, with teleports and idle motion suppressed.
+The director progresses through **Quiet → Unease → Pressure → Peak → Release**, with transitions driven by conditions and bounded durations:
 
-The model is a lit, faceless raincoat silhouette. Cloth drag, heavy steps, uneven breathing, and receding brush provide restrained positional cues. Directional captions provide equivalent feedback when muted; captions reflect audible cues rather than revealing an exact position. Rejoining or returning from a menu does not replay a burst of old cues. Menus and inventory keep the world and encounters running.
+| Phase | Behavior and transition |
+| --- | --- |
+| Quiet | Actual rest after the creature leaves, lasting 45–65 simulation seconds. Fresh loud activity can begin unease after this rest. After another minute of quiet, an exposed group can receive a distant presence without a fabricated sound or sighting. |
+| Unease | A safe offscreen arrival and investigation/listening. An established presence can progress after four seconds; failure to find a safe arrival ends the attempt after 15 seconds. |
+| Pressure | Shadow, investigate, search, or pressure an appropriate unprotected barrier. Confirmed sight within 14 blocks can escalate after three seconds. This phase has a 30-second cap. |
+| Peak | Brief pursuit opportunities with a 14-second maximum. High group pressure or depleted allowance ends the peak sooner. |
+| Release | Withdraw while the current encounter finishes. Quiet/rest starts only after the creature has actually left. A knockdown immediately enters release for the group. |
+
+Each encounter has **20 allowance points**. A pursuit burst costs four; a successful structural strike costs two. Structural pressure is capped at **six successful strikes per encounter**, and can end earlier. The director tracks pressure per player from proximity during an encounter, bursts, structural strikes, and knockdowns; the most pressured connected teammate governs relief. These are gameplay measurements, not a measurement of human fear. Recent targeting discourages selecting the same person again, while commitment prevents switching targets during a reach attempt. No age, microphone, or camera information is used.
+
+Director state includes its phase/deadlines, allowance, strike count, bounded recent player records, recent phase reasons, and a world-seeded random sequence. It is saved with the Listener and freezes offline. Recovery grace, powered wards, physical contact rules, and collision always override scored decisions.
+
+### Evidence, choices, and movement
+
+Breaking, building, repairing, gathering salvage, and sprinting produce authoritative noise; walking is quieter. Failed actions, idle motion, inventory selection, and opening menus do not create gameplay noise. Muting audio does not affect hearing. The creature retains up to eight sound/sight facts. Sight confidence decays over 18 seconds and sound over 22; replaying the same sound does not refresh its age. A sighting stores a location and observed direction, not continuous access to a hidden player's pose.
+
+| Creature state | Decision and behavior |
+| --- | --- |
+| Listen | Pause and assess uncertain or absent evidence. An ambient arrival receives no invented target. |
+| Investigate | Approach a remembered sound; fresh audible activity can update it. |
+| Shadow | Maintain a vantage roughly 8–10 blocks around a visible player, with quiet discovery/breath cues. This state cannot cause contact. |
+| Search | Check a bounded set of plausible locations around the last evidence and observed travel direction. Checked locations are remembered; silence allows confidence to expire. |
+| Pursue (`stalk` in saved/network state) | Requires director permission and current or very recent visual evidence. A distinct breath/quickening-step cue warns for **1.2 seconds**, followed by up to **five seconds at 5.4 blocks/second**. Between bursts it moves at 2.6; sprinting players move at 7.5. A five-second interval separates burst opportunities. |
+| Pressure barrier | Compare a loaded detour with the estimated cost of breaking an unprotected nearby door/panel. Prefer the shorter practical route; only permitted structural strikes spend allowance. |
+| Reach | A sub-action of pursuit: within 1.25 blocks and 1.2 blocks vertically, require physical clearance and a 0.9-second interruptible reach after the pursuit warning. |
+| Withdraw | Daylight, wards, recovery, expired evidence, encounter/pressure limits, or repeated route failures cause withdrawal. It seeks another retreat position if watched or stuck. It retires only after the eight-second withdrawal period and outside every player's conservative view. |
+
+Forbidden actions are removed before utility scoring. Eligible actions receive contextual scores, a small seeded preference, current-action preference, and a minimum commitment of 1.5 seconds while still eligible. Urgent safety conditions interrupt immediately. The entire active encounter is capped at 75 seconds before withdrawal.
+
+Spawn positions are at least 15 horizontal blocks from **every** connected player, including downed and recovering teammates. They require loaded, supported clearance, a usable initial route, verified absence of ward protection, and placement outside all players' conservative 140-degree view cones. Visibility checks include head, torso, and feet; unknown visibility cannot justify an on-screen arrival/removal. No active creature teleports. A visible withdrawing creature keeps moving toward an escape rather than fading in front of a player.
+
+Movement supports full blocks, lower/upper slabs, open two-block doors, and crouching under low ceilings. Walls and closed doors block movement; foliage blocks sight and glass permits sight while obstructing contact. Unknown shelter pauses entry without being treated as confirmed ward protection. Three periods of three seconds without useful movement mark failed goals and ultimately cause withdrawal; construction/streaming changes invalidate cached routes and failed-goal assumptions.
+
+The director performs normal updates at most once per simulation second, with immediate knockdown relief. Actor/perception updates run at most five times per second. Each actor update shares a maximum of 96 expanded navigation nodes, 4,096 navigation block reads, and a 2 ms route-search target. A spatial decision examines at most 12 candidate positions, followed by bounded navigation. Individual perception traces visit at most 96 cells. Search history is capped at 12 checked positions and eight failed goals; the noise ring holds 32 events, and director player history holds 64 records. These AI queries never generate terrain. Shelter connectivity remains the existing separate, bounded enclosure system.
+
+Press **P** for director phase/reason, remaining allowance, group pressure, actor decision, evidence age/confidence, and navigation/spatial-work counters. Diagnostics and performance exports omit profile tokens and remembered coordinates. Discovery, search, pursuit preparation, barrier preparation, and withdrawal have distinct restrained positional foley with equivalent directional captions. Joining or returning from menus does not replay old cues. Menus keep the simulation running.
+
+### Knockdown, rescue, and recovery
+
+Downed players keep all supplies. Their camera lowers and the edges darken gently, with no gore, flashing, or loud attack sting. Teammates see a downed avatar. Movement and build/supply actions are blocked by the host while down; menus do not stop the recovery timer.
+
+Hold **H** within 2.5 blocks of a downed teammate for **three seconds** to help them up in place. Touch devices show a hold-to-help button. Rescue requires physical line of contact, including glass obstruction. Progress resets after a half-second interruption, moving out of reach, losing clearance, or disconnecting; repeated packets cannot accelerate it. The strongest individual rescue progress is shown rather than stacking multiple helpers.
+
+If no one helps, automatic recovery returns the player to clear ground near the starter outpost after **30 simulation seconds**. Solo players and groups with nobody standing recover in **eight seconds**. Placement searches a bounded patch without removing construction and avoids other players. If the starter patch is blocked, clear space at the downed position is the fallback. Both rescue and automatic recovery grant **20 seconds** of immunity to prevent immediate repeat knockdowns. The Listener also withdraws after contact and retains its normal encounter cooldown.
+
+Downed states, recovery deadlines, and immunity are saved per anonymous player profile (or private-world player). Rejoining does not clear them. Host movement rejects downed poses and stale poses sent before a recovery correction. All timers freeze when nobody is connected. Hosted state changes checkpoint before being published; browser save errors freeze private encounters for retry.
+
+### Structural pressure
+
+A closed door or reinforced panel directly blocking the nearby route attracts a **three-second preparation per hit**. Pressure checks a short segment at two body heights rather than scanning a building. It also requires convincing evidence, director permission, and remaining encounter allowance; a shorter usable detour can avoid destruction. Service doors take one hit, panels four, and security doors five. Damage uses the existing saved strength, shader wear, positional impact sounds, and repair costs. Door halves break together; panel walls need both body-height blocks cleared before passage. The Listener never awards resources for destruction, damages cabinets, or attacks arbitrary distant structures.
+
+A powered enclosed ward protects players and boundary doors/panels on either side. Closed interior doors still split zones, so a room without its own powered ward can remain vulnerable. Pressure pauses while enclosure status is unresolved. Unpowered barriers delay the Listener and can be repaired between hits; they eventually fail if left unprotected.
 
 ## Sound design
 
@@ -129,9 +180,10 @@ Generate isolated audition clips with `node scripts/audio-preview.js`; the times
 | Pick an owned material | Middle-click |
 | Select service door / utility light / ward / slab / flowers | 0 / L / Shift+L / B / R |
 | Menu | Escape |
+| Help a nearby downed teammate | Hold H for three seconds |
 | Mute / performance stats | M / P |
 
-Touch has a movement stick, drag-to-look, Jump, Sprint, Break, Place, Use, Drop, and Menu. Open Menu → Inventory to craft and move stacks. Menus release your controls while the world keeps running. Tab navigation remains disabled; click text fields to type.
+Touch shows a hold-to-help button near a downed teammate. It also has a movement stick, drag-to-look, Jump, Sprint, Break, Place, Use, Drop, and Menu. Open Menu → Inventory to craft and move stacks. Menus release your controls while the world keeps running. Tab navigation remains disabled; click text fields to type.
 
 ## Saves and migration
 

@@ -32,14 +32,14 @@ test('foley has noise-based material character without sustained periodic note t
 
 test('Listener cues are distinct, restrained, repeatable, bounded, and smoothly released', () => {
   const signatures = new Set();
-  for (const kind of ['step', 'alert', 'breath', 'retreat']) {
+  for (const kind of ['step', 'alert', 'notice', 'search', 'pursuit', 'pressure', 'breath', 'retreat']) {
     const pcm = synthesizeCue(kind, 16000); assert.deepEqual(pcm, synthesizeCue(kind, 16000));
     assert.equal(pcm[0], 0); assert.equal(pcm.at(-1), 0);
     assert.ok(pcm.every(v => Number.isFinite(v) && Math.abs(v) < .65));
     assert.ok(energy(pcm) > .01); assert.ok(energy(pcm.slice(Math.floor(pcm.length * .8))) < energy(pcm) * .02);
     signatures.add(Buffer.from(pcm.buffer).toString('base64'));
   }
-  assert.equal(signatures.size, 4);
+  assert.equal(signatures.size, 8);
   assert.throws(() => synthesizeCue('unknown', 16000), RangeError);
   assert.ok(Math.sqrt(energy(synthesizeSound(WARD_LANTERN, 'ward_on', 16000)) / 16000) < .02, 'ward transitions are quiet mechanical cues');
 });

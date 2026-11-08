@@ -23,6 +23,8 @@ import { UpkeepView, upkeepFailure } from './upkeep-ui.js';
 import { strength } from './infrastructure.js';
 import { applyDamageMaterial } from './damage.js';
 import { ListenerRenderer } from './listener-renderer.js';
+import { RESCUE_REACH } from './encounters.js';
+import { traceBarriers } from './perception.js';
 import { MenuScreens } from './menu.js';
 import { HotbarScroll, disableUIFocus } from './input.js';
 import { DropRenderer } from './drop-renderer.js';
@@ -117,6 +119,9 @@ function start() {
 
   const controls = new PointerLockControls(camera, canvas);
   let playing = false;
+  let encounter = { state: 'ready', revision: 0, immuneUntil: 0 }, encounterPlayers = [];
+  let rescueHeld = false, rescueTarget = null, rescueSent = null, rescueElapsed = 0, rescuePending = false;
+  const isDowned = () => encounter.state === 'downed';
   let inventoryOpen = false;
   let inventoryReturnToPlay = false;
   let expectedPointerUnlock = false;
@@ -127,7 +132,7 @@ function start() {
     jump() { if (!player.flying) jumpQueued = true; },
     pause: pauseGame,
     action(action) {
-      if (!playing) return;
+      if (!playing || isDowned()) return;
       if (action === 'break' || action === 'place') void editBlock(action === 'place');
       else if (action === 'use') void useDoor();
       else if (action === 'drop') void dropItem();
@@ -143,6 +148,7 @@ function start() {
     lighting: { jobs: lanternLighting.jobs?.stats('light'), sources: lanternLighting.sourceCount,
       fieldBytes: lanternLighting.uniforms.lanternField.value.image.data.byteLength },
     viewport: { width: window.innerWidth, height: window.innerHeight, pixelRatio: renderer.getPixelRatio() },
+    listener: history.mode === 'single' ? history.backend?.listener?.diagnostics() : null,
     graphics: graphics.snapshot(),
   }));
   graphics.onChange = () => diagnostics.reset();
@@ -160,6 +166,10 @@ function start() {
   const shelterStatus = document.querySelector('#shelter-status');
   const wardHint = document.querySelector('#ward-hint');
   const listenerCue = document.querySelector('#listener-cue');
+  const encounterStatus = document.querySelector('#encounter-status');
+  const rescueButton = document.querySelector('#rescue-button');
+  rescueButton.addEventListener('pointerdown', event => { if (!playing || isDowned()) return; event.preventDefault(); rescueHeld = true; rescueButton.setPointerCapture(event.pointerId); });
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) rescueButton.addEventListener(type, () => { rescueHeld = false; });
   let cueUntil = 0, lastStepCaption = 0;
   const strengthHint = document.querySelector('#structure-strength');
   const strengthLabel = document.querySelector('#strength-label');
@@ -258,7 +268,7 @@ function start() {
   }
 
   function openInventory() {
-    if (!history.ready || inventoryOpen) return;
+    if (!history.ready || inventoryOpen || isDowned()) return;
     inventoryReturnToPlay = playing; inventoryOpen = true;
     pauseGame(); menu.hidden = true; inventoryView.open(inventoryReturnToPlay);
   }
@@ -284,6 +294,7 @@ function start() {
 
   function clearInput() {
     keys.clear();
+    rescueHeld = false;
     touch.reset();
     jumpQueued = false;
     accumulator = 0;
@@ -426,7 +437,8 @@ function start() {
       toggleSound();
       return;
     }
-    if (!playing) return;
+    if (!playing || isDowned()) return;
+    if (event.code === 'KeyH' && !modified) { event.preventDefault(); keys.add(event.code); return; }
     if (event.code === 'KeyQ' && !modified) {
       event.preventDefault(); if (!event.repeat) void dropItem(event.shiftKey); return;
     }
@@ -477,7 +489,7 @@ function start() {
   });
   canvas.addEventListener('contextmenu', (event) => event.preventDefault());
   canvas.addEventListener('mousedown', (event) => {
-    if (!playing || touch.enabled) return;
+    if (!playing || touch.enabled || isDowned()) return;
     if (document.pointerLockElement !== canvas) {
       event.preventDefault(); requestPlay({ optionalCapture: true }); return;
     }
@@ -543,6 +555,7 @@ function start() {
   }
 
   async function interactOrPlace() {
+    if (isDowned()) return;
     if (selected === REPAIR_TOOL && target && strength(world.get(target.x, target.y, target.z)) > 1) { await repairTarget(); return; }
     const door = interactionTarget();
     if (door) await useDoor(door);
@@ -585,6 +598,7 @@ function start() {
   }
 
   async function useDoor(door = interactionTarget()) {
+    if (isDowned()) return;
     if (selected === REPAIR_TOOL && target && strength(world.get(target.x, target.y, target.z)) > 1) { await repairTarget(); return; }
     if (!door) {
       if (target && (world.get(target.x, target.y, target.z) === WARD_LANTERN || world.get(target.x, target.y, target.z) === SALVAGE_CRATE || isSapling(world.get(target.x, target.y, target.z)))) await openUpkeep();
@@ -597,7 +611,7 @@ function start() {
   }
 
   async function editBlock(place) {
-    if (!history.ready) return;
+    if (!history.ready || isDowned()) return;
     updateTarget();
     if (!target) return;
     let { x, y, z } = target;
@@ -669,7 +683,7 @@ function start() {
   }
 
   function editError(result, fallback = 'That edit could not be applied.') {
-    notify({ blocked: 'That space is occupied by a player. Move clear, then try again.',
+    notify({ downed: 'You are down. Wait for help or automatic recovery.', blocked: 'That space is occupied by a player. Move clear, then try again.',
       changed: 'Someone changed that block. This action cannot overwrite their edit.',
       storage_not_empty: 'Empty this cabinet before dismantling it.',
       landmark: 'This is a fixed salvage supply point. Use it to gather supplies.',
@@ -709,8 +723,48 @@ function start() {
     updateTarget();
   }
 
+  function receiveEncounter(next, initial = false) {
+    if (!next) return;
+    const changed = encounter.revision !== next.revision, wasDown = isDowned();
+    encounter = next;
+    if (next.position && (changed && !initial || isDowned())) {
+      Object.assign(player, next.position, { vy: 0, grounded: false });
+      if (changed) { clearInput(); renderer.shadowMap.needsUpdate = true; syncCamera(); }
+    }
+    document.body.classList.toggle('downed', isDowned());
+    if (isDowned() && !wasDown) {
+      closeInventory(false);
+      notify('The Listener caught you. Your supplies are safe.');
+    } else if (!isDowned() && wasDown) notify('Back on your feet. You have a brief recovery grace period.');
+  }
+
+  function updateEncounter(seconds) {
+    const now = history.mode === 'single' ? history.clock.elapsedSeconds : history.backend?.elapsedSeconds?.() ?? history.clock.elapsedSeconds ?? 0;
+    encounterStatus.hidden = !history.ready || (!isDowned() && encounter.immuneUntil <= now);
+    if (!encounterStatus.hidden) encounterStatus.textContent = isDowned()
+      ? `You are down · A teammate can hold H nearby to help (${Math.round((encounter.rescueProgress || 0) * 100)}%). Automatic return in ${Math.max(0, Math.ceil(encounter.recoveryAt - now))}s. Supplies kept.`
+      : `Recovering · The Listener cannot touch you for ${Math.ceil(encounter.immuneUntil - now)}s`;
+    rescueTarget = null;
+    if (playing && history.ready && !isDowned()) for (const candidate of encounterPlayers) {
+      if (candidate.id === history.selfId || candidate.encounter?.state !== 'downed' || Math.abs(candidate.y - player.y) > 1.5) continue;
+      const distance = Math.hypot(candidate.x - player.x, candidate.z - player.z);
+      if (distance > RESCUE_REACH || rescueTarget && distance >= rescueTarget.distance) continue;
+      const trace = traceBarriers(world, { x: player.x, y: player.y + .8, z: player.z }, { x: candidate.x, y: candidate.y + .8, z: candidate.z });
+      if (!trace.barriers && !trace.unloaded) rescueTarget = { ...candidate, distance };
+    }
+    rescueButton.hidden = !rescueTarget;
+    if (rescueTarget) rescueButton.textContent = `Hold ${touch.enabled ? 'to help' : 'H to help'} ${rescueTarget.name} · ${Math.round((rescueTarget.encounter.rescueProgress || 0) * 100)}%`;
+    const targetId = rescueTarget && (keys.has('KeyH') || rescueHeld) ? rescueTarget.id : null;
+    rescueElapsed += seconds;
+    if (!rescuePending && history.ready && (targetId ? rescueElapsed >= .2 : rescueSent !== null)) {
+      rescuePending = true; rescueElapsed = 0; rescueSent = targetId;
+      void history.request('rescue', { targetId }).finally(() => { rescuePending = false; });
+    }
+    if (!rescueTarget) rescueHeld = false;
+  }
+
   function syncCamera() {
-    camera.position.set(player.x, player.y + EYE_HEIGHT, player.z);
+    camera.position.set(player.x, player.y + (isDowned() ? .65 : EYE_HEIGHT), player.z);
     camera.updateMatrixWorld();
   }
   syncCamera();
@@ -736,7 +790,7 @@ function start() {
     previous = now;
     if (playing && history.ready) {
       accumulator += elapsed;
-      while (accumulator >= fixedStep) {
+      while (!isDowned() && accumulator >= fixedStep) {
         const before = { ...player };
         stepPlayer(player, world, {
           forward: Number(keys.has('KeyW')) - Number(keys.has('KeyS')) + touch.forward,
@@ -756,19 +810,22 @@ function start() {
         jumpQueued = false;
         accumulator -= fixedStep;
       }
-      if (player.y < -15) {
+      if (isDowned()) { accumulator = 0; player.vy = 0; }
+      if (!isDowned() && player.y < -15) {
         Object.assign(player, spawnPlayer(world));
         notify('Back on solid ground.');
       }
       syncCamera();
       updateTarget();
+      if (isDowned()) outline.visible = false;
       particles.update(elapsed, world);
     }
     // Do not replay a long gap after the browser suspends a private world.
     history.update(Math.min(simulationElapsed, 1));
+    updateEncounter(elapsed);
     droppedItems.update(playing ? elapsed : 0, world);
     pickupElapsed += elapsed;
-    if (playing && history.ready && !pickingUp && pickupElapsed >= 0.25) {
+    if (playing && history.ready && !isDowned() && !pickingUp && pickupElapsed >= 0.25) {
       pickupElapsed = 0;
       // The host owns pickup delays on the persistent simulation clock.
       if (droppedItems.items.some(item => Math.hypot(item.x - player.x, item.z - player.z) <= PICKUP_RADIUS && Math.abs(item.y - player.y) < 2
@@ -848,7 +905,7 @@ function start() {
   }
   try { nameInput.value = localStorage.getItem('blockfield-name') || ''; } catch { /* Names are optional. */ }
   history.pose = () => ({ x: player.x, y: player.y, z: player.z, yaw: camera.rotation.y, pitch: camera.rotation.x,
-    active: playing, flying: player.flying });
+    active: playing && !isDowned(), flying: player.flying, encounterRevision: encounter.revision });
   history.callbacks = {
     storage(saved) { storageView.sync(saved); },
     constructionChunk({ key, damage }) { chunkRenderer.damage.setChunk(key, damage); },
@@ -866,7 +923,7 @@ function start() {
         if (event.kind === 'step') lastStepCaption = now;
         const behind = (event.source.x - ear.x) * -Math.sin(ear.yaw) + (event.source.z - ear.z) * -Math.cos(ear.yaw) < 0;
         const direction = position.pan < -.35 ? 'to the left' : position.pan > .35 ? 'to the right' : behind ? 'behind you' : 'nearby';
-        listenerCue.textContent = `${{ alert: 'Fabric dragging', breath: 'An uneven breath', retreat: 'Brush receding', step: 'A heavy footfall' }[event.kind]} ${direction}`;
+        listenerCue.textContent = state.winding ? 'The Listener is reaching. Back away.' : `${{ alert: 'Fabric dragging', notice: 'A sudden rustle', search: 'Slow, searching steps', pursuit: 'A sharp breath, then quickening steps', pressure: 'Scraping against a barrier', breath: 'An uneven breath', retreat: 'Brush receding', step: 'A heavy footfall' }[event.kind]} ${direction}`;
         cueUntil = now + 3500;
       }
     },
@@ -885,9 +942,12 @@ function start() {
       if (history.mode === 'multiplayer') renderConnectedPlayers([], history.blocked ? 'Not connected.' : 'Connecting…');
     },
     welcome(message) {
+      encounter = { state: 'ready', revision: -1, immuneUntil: 0 }; encounterPlayers = message.players || [];
+      rescueSent = null; rescueElapsed = 0; rescueHeld = false;
       chunkRenderer.damage.clear(); listenerRenderer.sync(null); sounds.remoteSteps.clear(); cueUntil = 0;
       droppedItems.sync([]);
       Object.assign(player, message.self, { vy: 0, grounded: false, flying: false });
+      receiveEncounter(message.self.encounter, true);
       camera.rotation.set(message.self.pitch, message.self.yaw, 0, 'YXZ');
       clearInput(); syncCamera(); rebuildMeshes();
       error.hidden = true;
@@ -913,6 +973,8 @@ function start() {
       playerCapacity = message.maxPlayers || 8;
     },
     players(players) {
+      encounterPlayers = players;
+      receiveEncounter(players.find(p => p.id === history.selfId)?.encounter);
       sounds.trackPlayers(players, history.selfId);
       if (otherPlayers.sync(players, history.selfId)) renderer.shadowMap.needsUpdate = true;
       if (history.mode === 'multiplayer') renderConnectedPlayers(players);
@@ -935,7 +997,7 @@ function start() {
     },
     edit(message) { chunkRenderer.damage.edited(message.changes); if (message.method === 'growth') rebuildMeshes(message.changes); else finishEdit(message.changes[0], undefined, message.changes); },
     disconnected() {
-      listenerRenderer.sync(null); cueUntil = 0;
+      listenerRenderer.sync(null); cueUntil = 0; encounterPlayers = []; rescueTarget = null;
       shelter = null; confirmedProtection = null; wardRenderer.sync(); shelterStatus.textContent = 'Protection unavailable · Reconnecting'; shelterStatus.dataset.state = 'checking';
       renderConnectedPlayers([], 'Not connected.');
       closeInventory(false);

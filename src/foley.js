@@ -37,6 +37,10 @@ const cues = {
   step: { ...actions.step, duration: .42, volume: .52, beats: [0, .19, .36], friction: .18 },
   alert: { ...actions.open, duration: 1.1, volume: .24, beats: [.03, .2, .41], friction: .8 },
   breath: { ...actions.swim, duration: 1.25, volume: .22, beats: [.02, .26], friction: 1.1 },
+  notice: { ...actions.open, duration: .8, volume: .22, beats: [.02, .48], friction: .65 },
+  search: { ...actions.open, duration: 1.35, volume: .18, beats: [.02, .36, .7], friction: .6 },
+  pursuit: { ...actions.step, duration: 1.1, volume: .3, beats: [.03, .3, .58], bodyDecay: .055, friction: .55 },
+  pressure: { ...actions.open, duration: .95, volume: .26, beats: [.02, .14, .65], friction: 1 },
   retreat: { ...actions.break, duration: .85, volume: .28, beats: [.02, .19, .38], friction: .5 },
 };
 const normalized = block => isFlower(block) ? RED_FLOWER : buildBlock(block);

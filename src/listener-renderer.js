@@ -4,11 +4,11 @@ import * as THREE from 'three';
 export class ListenerRenderer {
   constructor(scene, prepareMaterial = () => {}) {
     this.group = new THREE.Group(); this.group.name = 'listener'; this.group.visible = false; scene.add(this.group);
-    this.geometry = new THREE.BoxGeometry(); this.phase = 0; this.snapshot = null; this.sequence = null;
+    this.geometry = new THREE.BoxGeometry(); this.phase = 0; this.snapshot = null; this.sequence = null; this.crouch = 0;
     this.materials = [new THREE.MeshLambertMaterial({ color: '#263139', transparent: true }), new THREE.MeshLambertMaterial({ color: '#111b22', transparent: true }), new THREE.MeshLambertMaterial({ color: '#59676b', transparent: true })];
     for (const material of this.materials) prepareMaterial(material);
     const part = (parent, scale, position, material = this.materials[0]) => { const mesh = new THREE.Mesh(this.geometry, material); mesh.scale.set(...scale); mesh.position.set(...position); mesh.castShadow = mesh.receiveShadow = true; parent.add(mesh); return mesh; };
-    part(this.group, [.46, 1.05, .3], [0, 1.28, 0]);
+    this.body = part(this.group, [.46, 1.05, .3], [0, 1.28, 0]);
     part(this.group, [.52, .32, .34], [0, .85, 0]);
     this.head = part(this.group, [.34, .45, .3], [0, 2.08, 0], this.materials[1]);
     part(this.head, [.68, .72, .08], [0, -.02, -.52], this.materials[2]);
@@ -21,7 +21,7 @@ export class ListenerRenderer {
     }
   }
   sync(state) {
-    if (!state) { this.snapshot = null; this.sequence = null; this.group.visible = false; return []; }
+    if (!state) { this.snapshot = null; this.sequence = null; this.group.visible = false; this.crouch = 0; return []; }
     const events = [];
     if (this.sequence && state.state !== 'dormant') {
       if (state.cueSeq > this.sequence.cueSeq) events.push({ kind: state.cueKind, source: { x: state.x, y: state.y + 1.8, z: state.z } });
@@ -39,11 +39,15 @@ export class ListenerRenderer {
     if (!visible) return changed;
     const amount = Math.min(1, seconds * 9), before = this.group.position.clone();
     this.group.position.lerp(new THREE.Vector3(p.x, p.y, p.z), amount); this.group.rotation.y += Math.atan2(Math.sin(p.yaw - this.group.rotation.y), Math.cos(p.yaw - this.group.rotation.y)) * amount;
-    const moved = before.distanceTo(this.group.position); this.phase += moved * 3.6;
-    for (const { leg, arm, sign } of this.limbs) { leg.rotation.x = Math.sin(this.phase) * sign * .14; arm.rotation.x = Math.sin(this.phase + .6) * sign * .07; }
-    this.head.rotation.z = p.state === 'stalk' ? .08 : .02;
+    const moved = before.distanceTo(this.group.position); this.phase += moved * Math.PI / .9;
+    const movement = Math.min(1, moved / Math.max(.001, seconds));
+    this.crouch += ((p.crouched ? 1 : 0) - this.crouch) * amount;
+    this.body.position.y = 1.28 - this.crouch * .22; this.body.scale.y = 1.05 - this.crouch * .18;
+    this.head.position.y = 2.08 - this.crouch * .48; this.head.rotation.x = this.crouch * .2;
+    for (const { leg, arm, sign } of this.limbs) { leg.rotation.x += (Math.sin(this.phase) * sign * .48 * movement - leg.rotation.x) * amount; arm.rotation.x += ((p.winding ? -.9 : p.pressing ? -.65 : Math.sin(this.phase + .6) * sign * .1 * movement) - arm.rotation.x) * amount; arm.position.y = 1.74 - this.crouch * .35; }
+    this.head.rotation.z = p.state === 'search' ? Math.sin(this.phase * .2) * .12 : p.state === 'shadow' ? .1 : p.state === 'stalk' ? .06 : .02;
     for (const material of this.materials) material.opacity = p.alpha;
-    return changed || moved > .002 || p.alpha < 1;
+    return changed || moved > .002 || p.alpha < 1 || Math.abs(this.crouch - (p.crouched ? 1 : 0)) > .01;
   }
   dispose() { this.group.removeFromParent(); this.geometry.dispose(); for (const material of this.materials) material.dispose(); }
 }

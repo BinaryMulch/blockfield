@@ -12,8 +12,10 @@ import { ShelterSystem } from '../src/shelter.js';
 import { Infrastructure } from '../src/infrastructure.js';
 import { UpkeepSystem } from '../src/upkeep.js';
 import { ListenerSystem } from '../src/listener.js';
+import { EncounterSystem, recoveryPoint } from '../src/encounters.js';
+import { ListenerPressure } from '../src/listener-pressure.js';
 
-export const PROTOCOL = 12;
+export const PROTOCOL = 15;
 export const MAX_PLAYERS = 8;
 const COLORS = ['#db8b58', '#669bc1', '#b17bb2', '#79a56c', '#d2b358', '#d77587', '#69aeaa', '#8f8ac5'];
 const indexOf = (x, y, z) => `${x},${y},${z}`;
@@ -70,7 +72,7 @@ export class GameRoom {
     this.infrastructure = new Infrastructure(world);
     this.upkeep = new UpkeepSystem(world, { clock: () => this.clock.elapsedSeconds, infrastructure: this.infrastructure, sites: this.horror.salvage });
     this.shelters = new ShelterSystem(world, { wardPower: p => this.upkeep.wardPower(p) });
-    this.listener = new ListenerSystem(world, { clock: () => this.clock, shelters: this.shelters });
+    this.setupEncounters();
     this.maxPlayers = maxPlayers;
     this.versions = new Map();
     this.chunkRevisions = new Map();
@@ -81,7 +83,7 @@ export class GameRoom {
   }
 
   toSave() { return captureSave({ world: this.world, id: this.worldId, name: this.name, createdAt: this.createdAt, clock: this.clock, gameMode: this.gameMode,
-    horror: this.horror, listener: this.listener.snapshot(), upkeep: this.upkeep.snapshot(), ...this.infrastructure.snapshot(), profiles: [...this.profiles].map(([token, inventory]) => [token, inventory.snapshot()]), drops: this.drops.snapshot() }); }
+    horror: this.horror, listener: this.listener.snapshot(), encounters: this.encounters.snapshot(), upkeep: this.upkeep.snapshot(), ...this.infrastructure.snapshot(), profiles: [...this.profiles].map(([token, inventory]) => [token, inventory.snapshot()]), drops: this.drops.snapshot() }); }
 
   static fromSave(save) {
     save = migrateSave(save);
@@ -95,8 +97,31 @@ export class GameRoom {
     room.worldId = save.id; room.createdAt = save.createdAt;
     room.clock = new DayClock(save.clock);
     room.upkeep = new UpkeepSystem(world, { saved: save.upkeep, clock: () => room.clock.elapsedSeconds, infrastructure: room.infrastructure, sites: room.horror.salvage });
-    room.listener = new ListenerSystem(world, { saved: save.listener, clock: () => room.clock, shelters: room.shelters });
+    room.setupEncounters(save);
     return room;
+  }
+
+  setupEncounters(saved = {}) {
+    this.encounterEvents = [];
+    this.encounters = new EncounterSystem(this.world, { clock: () => this.clock.elapsedSeconds, saved: saved.encounters, recover: player => recoveryPoint(this.world, this.horror, [...this.players.values()].filter(p => p.id !== player.id).map(p => p.pose)) });
+    const pressure = new ListenerPressure(this.world, { shelters: this.shelters, infrastructure: this.infrastructure, upkeep: this.upkeep,
+      canHit: () => this.listener.director.permissions(this.clock.elapsedSeconds).breach,
+      onHit: () => this.listener.director.spend('hit', this.clock.elapsedSeconds, this.listener.mind.focusKey),
+      onResult: result => {
+        if (result.changes) this.recordWorldChanges(result.changes);
+        this.encounterEvents.push(result);
+      } });
+    this.listener = new ListenerSystem(this.world, { saved: saved.listener, clock: () => this.clock, shelters: this.shelters, pressure,
+      contact: id => { const player = this.players.get(id); return player ? this.encounters.knockDown({ ...player, key: player.token }, this.encounterPlayers()) : false; } });
+  }
+  encounterPlayers() { return [...this.players.values()].map(p => ({ id: p.id, key: p.token, pose: p.pose })); }
+  get encountersDirty() { return this.encounters.dirty || this.encounterEvents.length > 0; }
+  drainEncounters() { const events = this.encounterEvents.splice(0); this.encounters.dirty = false; return events; }
+  recordWorldChanges(changes) {
+    if (!changes.length) return;
+    this.revision++;
+    for (const c of changes) this.versions.set(indexOf(c.x, c.y, c.z), this.revision);
+    for (const k of new Set(changes.map(c => chunkKey(Math.floor(c.x / 16), Math.floor(c.z / 16))))) this.chunkRevisions.set(k, (this.chunkRevisions.get(k) || 0) + 1);
   }
 
   join(name, token) {
@@ -125,12 +150,14 @@ export class GameRoom {
       player.token = token; player.inventory = this.profiles.get(token); player.history.inventory = player.inventory;
     }
     player.history.infrastructure = this.infrastructure; player.history.upkeep = this.upkeep; player.history.actorId = id;
+    const encounter = this.encounters.record({ key: token });
+    if (encounter?.state === 'downed') Object.assign(pose, encounter.position);
     this.players.set(id, player);
     return player;
   }
 
   publicPlayer(player) {
-    return { id: player.id, name: player.name, color: player.color, ...player.pose };
+    return { id: player.id, name: player.name, color: player.color, ...player.pose, encounter: this.encounters.publicState({ ...player, key: player.token }) };
   }
 
   playerList() { return [...this.players.values()].map(player => this.publicPlayer(player)); }
@@ -155,19 +182,19 @@ export class GameRoom {
     return { type: 'chunk', cx, cz, revision: this.chunkRevisions.get(key) || 0, blocks: Buffer.from(blocks).toString('base64'), construction: this.infrastructure.chunkDamage(cx, cz) };
   }
 
-  leave(id) { this.infrastructure.lastHit.delete(id); this.listener.forget(id); return this.players.delete(id); }
+  leave(id) { this.infrastructure.lastHit.delete(id); this.listener.forget(id); this.encounters.forget(id); return this.players.delete(id); }
 
   advance(seconds) {
-    if (this.clockState().running) { this.clock.advance(seconds); this.shelters.advance(seconds); this.listener.advance(seconds, [...this.players.values()].map(p => ({ id: p.id, pose: p.pose }))); }
+    if (!this.clockState().running) return;
+    this.clock.advance(seconds); this.shelters.advance(seconds);
+    const players = this.encounterPlayers();
+    this.encounters.advance(players);
+    this.listener.advance(seconds, players.map(p => ({ ...p, vulnerable: this.encounters.vulnerable(p), downed: this.encounters.downed(p) })));
   }
 
   processUpkeep() {
     const changes = this.upkeep.step([...this.players.values()].map(player => player.pose));
-    if (changes.length) {
-      this.revision++;
-      for (const c of changes) this.versions.set(indexOf(c.x, c.y, c.z), this.revision);
-      for (const k of new Set(changes.map(c => chunkKey(Math.floor(c.x / 16), Math.floor(c.z / 16))))) this.chunkRevisions.set(k, (this.chunkRevisions.get(k) || 0) + 1);
-    }
+    this.recordWorldChanges(changes);
     return changes;
   }
 
@@ -176,6 +203,8 @@ export class GameRoom {
     if (!player || !pose || !['x', 'y', 'z', 'yaw', 'pitch'].every(key => Number.isFinite(pose[key]))) return false;
     if (pose.x < -32 || pose.x > (this.world.size || SIZE) + 32 || pose.z < -32 || pose.z > (this.world.size || SIZE) + 32 || pose.y < -32 || pose.y > HEIGHT + 12
       || Math.abs(pose.pitch) > Math.PI / 2 + 0.01) return false;
+    const encounter = this.encounters.publicState({ ...player, key: player.token });
+    if (encounter.state === 'downed' || encounter.revision > 0 && pose.encounterRevision !== encounter.revision) return false;
     Object.assign(player.pose, { x: pose.x, y: pose.y, z: pose.z, yaw: pose.yaw % (Math.PI * 2), pitch: pose.pitch,
       flying: false, active: pose.active === true });
     return true;
@@ -197,6 +226,11 @@ export class GameRoom {
     if (!player) return { ok: false, reason: 'disconnected' };
     const { method } = message;
     if (RESTRICTED_COMMANDS.has(method)) return { ok: false, reason: 'restricted' };
+    if (this.encounters.downed({ key: player.token }) && method !== 'name') return { ok: false, reason: 'downed' };
+    if (method === 'rescue') {
+      if (message.targetId === null) { this.encounters.rescues.delete(id); return { ok: true, type: 'players' }; }
+      return this.encounters.rescue({ ...player, key: player.token }, this.encounterPlayers().find(p => p.id === message.targetId));
+    }
     player.history.spendSlot = undefined;
     player.history.attackTime = this.clock.elapsedSeconds;
     if (['inspectUpkeep', 'gatherSalvage', 'repair', 'refuelWard', 'setWardPower'].includes(method)) return this.upkeep.command(method, message, player.inventory, player.pose);

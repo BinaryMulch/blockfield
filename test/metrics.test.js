@@ -74,6 +74,8 @@ test('performance endpoint supplies bounded diagnostics without joining or cachi
     assert.equal(result.saving, false); assert.equal(result.saveHealthy, true);
     assert.ok(result.memory.rss > 0);
     assert.equal(result.saveMs.last, null);
+    assert.equal(result.listener.state, 'dormant'); assert.equal(typeof result.listener.activity, 'string');
+    assert.equal(result.listener.expandedNodes, 0); assert.equal(result.listener.blockReads, 0);
     assert.equal(result.world, undefined); assert.equal(result.environment, undefined);
   } finally { await game.close(); }
 });

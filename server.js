@@ -52,7 +52,7 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
       if (url.pathname === '/api/performance') {
         response.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
         response.end(JSON.stringify({ version: 1, ...metrics.snapshot(), players: room.players.size,
-          loadedChunks: room.world.chunks?.size || 0, saving: !!persistence, saveHealthy: !saveFailure, mode: dev ? 'development' : 'production' }));
+          loadedChunks: room.world.chunks?.size || 0, listener: room.listener.diagnostics(), saving: !!persistence, saveHealthy: !saveFailure, mode: dev ? 'development' : 'production' }));
         return;
       }
       if (url.pathname === '/healthz') {
@@ -105,7 +105,7 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
       if (saveFailure) return;
       advanceClock();
       saving = true;
-      try { await task(); } catch (error) { failedSave(error); } finally { lastTick = performance.now(); saving = false; }
+      try { await flushEncounters(); await task(); await flushEncounters(); } catch (error) { failedSave(error); } finally { lastTick = performance.now(); saving = false; }
     });
   };
   const broadcastEdits = (changes, by, method) => {
@@ -129,6 +129,15 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
       }
       if (updates.length) send(other, { type: 'edit', by, method, updates, revision: room.revision });
     }
+  };
+  const flushEncounters = async () => {
+    if (!room.encountersDirty) return;
+    await checkpoint();
+    for (const event of room.drainEncounters()) {
+      if (event.changes) broadcastEdits(event.changes, 'listener', 'pressure');
+      if (event.damage) broadcast({ type: 'construction', damage: event.damage });
+    }
+    broadcastPlayerState();
   };
   const streamPeer = (socket, peer, limit = 4) => {
     const player = room.players.get(peer.id);
@@ -197,6 +206,7 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
       peer.lastRequest = message.requestId;
       enqueue(async () => {
       const result = room.command(peer.id, message);
+      if (room.encountersDirty) await flushEncounters();
       if (result.ok && (result.changes || result.type === 'clock' || result.type === 'supplies' || ['drops', 'storage', 'construction', 'upkeep'].includes(result.type))) await checkpoint();
       if (result.ok && room.players.get(peer.id)?.inventory) send(socket, { type: 'supplies', inventory: room.players.get(peer.id).inventory.snapshot() });
       if (result.ok && result.type === 'storage') broadcast({ type: 'storage', storage: result.storage });
@@ -218,7 +228,7 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
       peers.delete(socket);
       if (!closing) advanceClock();
       if (peer.id && room.leave(peer.id) && !closing) {
-        broadcastPlayerState();
+        if (!room.encountersDirty) broadcastPlayerState();
         // Persist the exact paused state, rather than waiting for an autosave
         // that intentionally stops when the last connected player leaves.
         if (!room.players.size) enqueue(checkpoint);
@@ -239,11 +249,20 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
     await persistence?.close();
     throw error;
   }
-  let upkeepQueued = false;
+  let upkeepQueued = false, encounterQueued = false;
   const tick = setInterval(() => {
     const now = performance.now();
     advanceClock();
     if (saving || saveFailure) return;
+    if (room.encountersDirty) {
+      if (!encounterQueued) {
+        encounterQueued = true;
+        enqueue(async () => { encounterQueued = false; });
+      }
+      // Do not stream a chunk containing an uncheckpointed breach or damage.
+      metrics.tick.add(performance.now() - now);
+      return;
+    }
     if (room.players.size && !upkeepQueued && room.upkeep.hasDue()) {
       upkeepQueued = true;
       enqueue(async () => {
@@ -254,7 +273,7 @@ export async function createGameServer({ host = '0.0.0.0', port = 6200, dev = fa
         } finally { upkeepQueued = false; }
       });
     }
-    if (room.players.size) broadcastPlayerState();
+    if (room.players.size && !room.encountersDirty) broadcastPlayerState();
     for (const [socket, peer] of peers) if (peer.id) streamPeer(socket, peer);
     room.world.evict?.([...room.players.values()].map(player => player.pose), 5);
     metrics.tick.add(performance.now() - now);

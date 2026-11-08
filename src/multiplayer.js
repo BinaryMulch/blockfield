@@ -3,7 +3,7 @@ import { CHUNK_SIZE } from './generation.js';
 import { HEIGHT } from './world.js';
 import { newWorldId, validPlayerToken } from './saves.js';
 
-const PROTOCOL = 12;
+const PROTOCOL = 15;
 export class MultiplayerClient {
   ready = false;
   selfId = null;

@@ -99,6 +99,14 @@ export class PerformanceOverlay {
     set('mesh', `${ms(c.mesh?.workMs?.mean)} / ${ms(c.mesh?.turnaroundMs?.mean)}`);
     set('generate', c.mode === 'single' ? `${ms(c.generate?.workMs?.mean)} / ${ms(c.generate?.turnaroundMs?.mean)}` : 'Runs on host');
     set('jobs', `${c.mesh?.pending || 0} / ${c.generate?.pending || 0}`);
+    const listener = c.mode === 'single' ? c.listener : s?.listener;
+    set('listener', listener ? `${listener.state} · ${listener.activity}` : '—');
+    set('director', listener?.director ? `${listener.director.phase} · budget ${listener.director.budget} · pressure ${listener.director.maxPressure}%` : '—');
+    set('director-reason', listener?.director?.reason || '—');
+    set('listener-decision', listener?.decision || '—');
+    set('listener-evidence', listener?.evidence || '—');
+    set('listener-queries', listener ? `${listener.candidates} candidates · ${listener.perceptionSteps} trace cells · ${listener.failedRoutes} failed goals` : '—');
+    set('listener-work', listener ? `${listener.expandedNodes} / ${listener.blockReads} · ${listener.pathNodes} path` : '—');
     set('lighting', `${ms(c.lighting.jobs?.workMs?.mean)} / ${c.lighting.sources} / ${c.lighting.jobs?.pending || 0}`);
     set('server', s ? `${this.serverState} · ${s.mode}` : this.serverState);
     set('cpu', s ? percent(s.cpuPercent) : '—');
